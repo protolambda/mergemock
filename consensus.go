@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
 	"math"
 	"time"
@@ -16,10 +17,15 @@ type ConsensusCmd struct {
 	// - % random gap slots (= missing beacon blocks)
 	// - % random finality
 
+	EngineAddr string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
+
 	// embed logger options
 	LogCmd `ask:".log"`
 
-	close chan struct{}
+	close  chan struct{}
+	log    logrus.Ext1FieldLogger
+	ctx    context.Context
+	engine *rpc.Client
 }
 
 func (c *ConsensusCmd) Default() {
@@ -41,15 +47,23 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return fmt.Errorf("slot time %s is too small", c.SlotTime.String())
 	}
 
+	client, err := rpc.DialContext(ctx, c.EngineAddr)
+	if err != nil {
+		return err
+	}
+
+	c.log = log
+	c.engine = client
+	c.ctx = ctx
 	c.close = make(chan struct{})
 
-	go c.RunNode(log)
+	go c.RunNode()
 
 	return nil
 }
 
-func (c *ConsensusCmd) RunNode(log *logrus.Logger) {
-	log.Info("started")
+func (c *ConsensusCmd) RunNode() {
+	c.log.Info("started")
 
 	genesisTime := time.Now().Add(-c.PastGenesis)
 
@@ -71,19 +85,21 @@ func (c *ConsensusCmd) RunNode(log *logrus.Logger) {
 			if slot < 0 {
 				// before genesis...
 				if slot >= -10.0 {
-					log.WithField("remaining_slots", -slot).Info("counting down to genesis...")
+					c.log.WithField("remaining_slots", -slot).Info("counting down to genesis...")
 				}
 				continue
 			}
 
-			log.WithField("slot", slot).Info("slot trigger")
+			c.log.WithField("slot", slot).Info("slot trigger")
+
+			//id, err := PreparePayload(c.ctx, c.engine, c.log.WithField("slot", slot), &PreparePayloadParams{TODO})
 
 			// TODO: simulate new payload for execution layer
 		case <-c.close:
-			log.Info("closing consensus mock node")
+			c.log.Info("closing consensus mock node")
+			c.engine.Close()
 		}
 	}
-
 }
 
 func (c *ConsensusCmd) Close() error {

@@ -33,12 +33,15 @@ func (c *MergeMockCmd) Routes() []string {
 	return []string{"consensus", "engine"}
 }
 
+type start struct {
+	cmd *ask.CommandDescription
+	err error
+}
+
 func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 	ctx, cancel := context.WithCancel(context.Background())
-
-	var closer io.Closer
 
 	cmd := &MergeMockCmd{}
 	descr, err := ask.Load(cmd)
@@ -50,37 +53,49 @@ func main() {
 		fmt.Fprintf(os.Stderr, "warning: flag %q is deprecated: %s", fl.Path, fl.Deprecated)
 		return nil
 	}
-	if cmd, err := descr.Execute(ctx, &ask.ExecutionOptions{OnDeprecated: onDeprecated}, os.Args[1:]...); err == nil {
-		// if the command is long-running and closeable later on, then remember, and have the interrupt close it.
-		if cl, ok := cmd.Command.(io.Closer); ok {
-			closer = cl
-		}
-	} else if err == ask.UnrecognizedErr {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	} else if err == ask.HelpErr {
-		_, _ = fmt.Fprintln(os.Stderr, cmd.Usage(false))
-		os.Exit(0)
-	} else {
-		_, _ = fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
 
-	// TODO: multiple interrupts to force quick exit?
-	select {
-	case <-interrupt:
-		if closer != nil {
-			err := closer.Close()
-			cancel()
-			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "failed to close node gracefully. Exiting in 5 seconds. %v", err.Error())
-				<-time.After(time.Second * 5)
+	starter := make(chan start, 0)
+
+	// run command in the background, so we can stop it at any time
+	go func() {
+		cmd, err := descr.Execute(ctx, &ask.ExecutionOptions{OnDeprecated: onDeprecated}, os.Args[1:]...)
+		starter <- start{cmd, err}
+	}()
+
+	for {
+		select {
+		case start := <-starter:
+			if cmd, err := start.cmd, start.err; err == nil {
+				// if the command is long-running and closeable later on, then have the interrupt close it.
+				if cl, ok := cmd.Command.(io.Closer); ok {
+					select {
+					case <-interrupt:
+						err := cl.Close()
+						cancel()
+						if err != nil {
+							_, _ = fmt.Fprintf(os.Stderr, "failed to close node gracefully. Exiting in 5 seconds. %v", err.Error())
+							<-time.After(time.Second * 5)
+							os.Exit(1)
+						}
+						os.Exit(0)
+					}
+				} else {
+					os.Exit(0)
+				}
+			} else if err == ask.UnrecognizedErr {
+				_, _ = fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			} else if err == ask.HelpErr {
+				_, _ = fmt.Fprintln(os.Stderr, cmd.Usage(false))
+				os.Exit(0)
+			} else {
+				_, _ = fmt.Fprintln(os.Stderr, err.Error())
 				os.Exit(1)
 			}
-			os.Exit(1)
-		} else {
+		case <-interrupt: // if interrupted during start, then we try to cancel
 			cancel()
-			<-time.After(time.Second * 2)
+			// TODO: multiple interrupts to force quick exit?
 		}
 	}
+
 }

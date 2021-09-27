@@ -59,14 +59,25 @@ the consensus client.
 Mocking the consensus client is more involved. As the driver of the execution
 engine, it needs to be more intelligent with it's requests.
 
-The general idea is to simulate the slots and epochs of configurable intervals
-and lengths. With a basic slot cycle, the rest of the behaviour can be defined
-to occur based on some probability factor.
+The general idea is to simulate slots and epochs of configurable intervals and
+lengths. With a basic slot cycle, the rest of the behaviour can be defined to
+occur based on some probability factor.
 
 The most difficult method to model will likely be `engine_executePayload` since
 it can't just use random transactions. To actually provide a "real" chain to
 the execution engine, it will probably be best if `mergemock` also maintains a
 copy of the chain and applies transfer txs to it to get a new transition.
+
+#### Rough Order of Operation
+1. Slot begins.
+2. Determine if `mergemock` will propose this slot.
+3. If yes, call `engine_preparePayload`.
+    3a. After a short period of time, call `engine_getPayload`.
+4. If no, generate an `ExecutionPayload` and call `engine_executePayload`.
+    4a. Call `engine_consensusValidated`.
+5. `engine_forkchoiceUpdated` is called.
+    * Question: Is this called at this poitn to update the head to the
+    parent block (if proposing) and to the newly exeucted block if not?
 
 #### Probability Configuration
 

@@ -46,6 +46,7 @@ the consensus client.
 * A CLI arg of "known" header hashes (or just headers?) to text error code `4:
   Unknown header`. 
 * A CLI arg of "valid" / "invalid" header hashes.
+* A CLI arg of percentile values to determine the probability of certain errors happening.
 
 ## License
 

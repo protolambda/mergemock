@@ -21,7 +21,7 @@ type ConsensusCmd struct {
 	EngineAddr string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
 
 	// embed logger options
-	LogCmd `ask:".log"`
+	LogCmd `ask:".log" help:"Change logger configuration"`
 
 	close  chan struct{}
 	log    logrus.Ext1FieldLogger
@@ -30,6 +30,7 @@ type ConsensusCmd struct {
 }
 
 func (c *ConsensusCmd) Default() {
+	c.EngineAddr = "http://127.0.0.1:8550"
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
@@ -75,7 +76,7 @@ func (c *ConsensusCmd) RunNode() {
 
 	slots := time.NewTicker(c.SlotTime)
 	// align ticker with genesis
-	slots.Reset(c.PastGenesis % c.SlotTime)
+	//slots.Reset(c.PastGenesis % c.SlotTime) // TODO
 	defer slots.Stop()
 
 	for {

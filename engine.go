@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -55,11 +54,6 @@ func (c *EngineCmd) Default() {
 
 func (c *EngineCmd) Help() string {
 	return "Run a mock Execution Engine."
-}
-
-func isWebsocket(r *http.Request) bool {
-	return strings.ToLower(r.Header.Get("Upgrade")) == "websocket" &&
-		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }
 
 func (c *EngineCmd) Run(ctx context.Context, args ...string) error {

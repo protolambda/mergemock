@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sirupsen/logrus"
 	"math"
 	"time"
+
+	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sirupsen/logrus"
 )
 
 type ConsensusCmd struct {

@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/term"
 	"os"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	"golang.org/x/term"
 )
 
 type LogCmd struct {

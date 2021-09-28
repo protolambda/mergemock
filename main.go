@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/protolambda/ask"
 	"io"
 	"os"
 	"os/signal"
 	"time"
+
+	"github.com/protolambda/ask"
 )
 
 type MergeMockCmd struct {

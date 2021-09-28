@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	gethnode "github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
@@ -161,8 +160,25 @@ type EngineBackend struct {
 	log logrus.Ext1FieldLogger
 }
 
-func (e *EngineBackend) GetPayload(idx hexutil.Uint64) hexutil.Uint64 {
-	return idx
+func (e *EngineBackend) PreparePayload(ctx context.Context, params *PreparePayloadParams) (PayloadID, error) {
+
+	return 0, nil
+}
+
+func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
+	return nil, nil
+}
+
+func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+	return nil, nil
+}
+
+func (e *EngineBackend) ConsensusValidated(ctx context.Context, params *ConsensusValidatedParams) error {
+	return nil
+}
+
+func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, params *ForkchoiceUpdatedParams) error {
+	return nil
 }
 
 // TODO: more engine methods

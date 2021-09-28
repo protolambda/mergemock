@@ -102,7 +102,8 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 
 	mockChain := NewMockChain(logr, genesisTimestamp, c.SlotTime, genesis, db)
 
-	backend := &EngineBackend{log: logr, mockChain: mockChain}
+	recentPayloadsCache, err := lru.New(10)
+	backend := &EngineBackend{log: logr, mockChain: mockChain, recentPayloads: recentPayloadsCache}
 
 	c.rpcSrv = rpc.NewServer()
 	c.rpcSrv.RegisterName("engine", backend)

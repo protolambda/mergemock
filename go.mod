@@ -4,8 +4,11 @@ go 1.17
 
 require (
 	github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6 // indirect
+	github.com/VictoriaMetrics/fastcache v1.6.0 // indirect
 	github.com/btcsuite/btcd v0.20.1-beta // indirect
+	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/deckarep/golang-set v0.0.0-20180603214616-504e848d77ea // indirect
+	github.com/edsrzf/mmap-go v1.0.0 // indirect
 	github.com/ethereum/go-ethereum v1.10.8
 	github.com/fjl/memsize v0.0.0-20190710130421-bcb5799ab5e5 // indirect
 	github.com/gballet/go-libpcsclite v0.0.0-20190607065134-2772fd86a8ff // indirect
@@ -16,6 +19,7 @@ require (
 	github.com/google/uuid v1.1.5 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
+	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
 	github.com/holiman/uint256 v1.2.0
 	github.com/huin/goupnp v1.0.2 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.2-0.20160603034137-1fa385a6f458 // indirect
@@ -43,11 +47,4 @@ require (
 	google.golang.org/protobuf v1.23.0 // indirect
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 	gopkg.in/urfave/cli.v1 v1.20.0 // indirect
-)
-
-require (
-	github.com/VictoriaMetrics/fastcache v1.6.0 // indirect
-	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/edsrzf/mmap-go v1.0.0 // indirect
-	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
 )

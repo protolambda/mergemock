@@ -166,7 +166,7 @@ func (c *ConsensusCmd) RunNode() {
 				c.log.WithError(err).Errorf("failed to add block")
 				continue
 			}
-			c.log.WithField("blockhashd", block.Hash()).Info("inserted new execution block")
+			c.log.WithField("blockhash", block.Hash()).Info("inserted new execution block")
 
 			/*
 				basefee := &uint256.NewInt(7)

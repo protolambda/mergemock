@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethdb"
+	gethlog "github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -187,6 +188,10 @@ func NewMockChain(log logrus.Ext1FieldLogger, genesis *core.Genesis, db ethdb.Da
 	// TODO: real ethash, with very low difficulty
 	fakeEthash := ethash.NewFaker()
 	execConsensus := &ExecutionConsensusMock{fakeEthash, log}
+
+	// Geth logs some things globally unfortunately.
+	// If we were using multiple mocks, we wouldn't know which one is logging what :(
+	gethlog.Root().SetHandler(&GethLogger{FieldLogger: log, Adjust: 1})
 
 	// todo: is overwriting harmful? Maybe do a safety check in case we restart from an existing db?
 	genesisBlock, err := genesis.Commit(db)

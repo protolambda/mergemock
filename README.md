@@ -41,8 +41,8 @@ the consensus client.
 #### [`engine_forkchoiceUpdated`][engine_forkchoiceUpdated]
 
 * Essentially a no-op.
-* Question: what happens if this is called to finalize a block that is already
-  the ancestor of a finalized block?
+* TODO: what should the mock do if this is called to finalize a 
+  block that is already the ancestor of a finalized block?
 
 #### Ideas for CLI args to improve mocking
 
@@ -57,7 +57,7 @@ the consensus client.
 ### Consensus Client Mock
 
 Mocking the consensus client is more involved. As the driver of the execution
-engine, it needs to be more intelligent with it's requests.
+engine, it needs to be more intelligent with its requests.
 
 The general idea is to simulate slots and epochs of configurable intervals and
 lengths. With a basic slot cycle, the rest of the behaviour can be defined to
@@ -69,6 +69,7 @@ the execution engine, it will probably be best if `mergemock` also maintains a
 copy of the chain and applies transfer txs to it to get a new transition.
 
 #### Rough Order of Operation
+
 1. Slot begins.
 2. Determine if `mergemock` will propose this slot.
 3. If yes, call `engine_preparePayload`.
@@ -76,14 +77,14 @@ copy of the chain and applies transfer txs to it to get a new transition.
 4. If no, generate an `ExecutionPayload` and call `engine_executePayload`.
     4a. Call `engine_consensusValidated`.
 5. `engine_forkchoiceUpdated` is called.
-    * Question: Is this called at this poitn to update the head to the
-    parent block (if proposing) and to the newly exeucted block if not?
+    * Question: Is this called at this point to update the head to the
+    parent block (if proposing) and to the newly executed block if not?
 
 #### Probability Configuration
 
 * `proposal` -- the probability that the consensus client executes the
   `engine_preparePayload`, `engine_getPayload` flow.
-* `missed_proposal` -- the probability the conensus client's proposal is not
+* `missed_proposal` -- the probability the consensus client's proposal is not
   built upon. This basically means the `engine_forkchoiceUpdated` is called
   with a new head hash that orphans the proposal.
 * `invalid_payload` -- the probability that an

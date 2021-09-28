@@ -31,8 +31,8 @@ type ConsensusCmd struct {
 	// - % random finality
 
 	EngineAddr  string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
-	DataDir     string `ask:"--datadir" help:"Directory to store chain data"`
-	GenesisPath string `ask:"--genesis" help:"Gensis file"`
+	DataDir     string `ask:"--datadir" help:"Directory to store chain data (empty for in-memory data)"`
+	GenesisPath string `ask:"--genesis" help:"Genesis config file"`
 
 	// embed logger options
 	LogCmd `ask:".log" help:"Change logger configuration"`
@@ -49,6 +49,9 @@ type ConsensusCmd struct {
 
 func (c *ConsensusCmd) Default() {
 	c.EngineAddr = "http://127.0.0.1:8550"
+
+	c.GenesisPath = "genesis.json"
+
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
@@ -72,9 +75,14 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	db, err := rawdb.NewLevelDBDatabaseWithFreezer(c.DataDir, 128, 128, c.DataDir, "", false)
-	if err != nil {
-		return err
+	var db ethdb.Database
+	if c.DataDir == "" {
+		db = rawdb.NewMemoryDatabase()
+	} else {
+		db, err = rawdb.NewLevelDBDatabaseWithFreezer(c.DataDir, 128, 128, c.DataDir, "", false)
+		if err != nil {
+			return err
+		}
 	}
 
 	c.database = db

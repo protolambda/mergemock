@@ -16,6 +16,7 @@ require (
 	github.com/google/uuid v1.1.5 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
+	github.com/holiman/uint256 v1.2.0
 	github.com/huin/goupnp v1.0.2 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.2-0.20160603034137-1fa385a6f458 // indirect
 	github.com/karalabe/usb v0.0.0-20190919080040-51dc0efba356 // indirect
@@ -42,4 +43,11 @@ require (
 	google.golang.org/protobuf v1.23.0 // indirect
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 	gopkg.in/urfave/cli.v1 v1.20.0 // indirect
+)
+
+require (
+	github.com/VictoriaMetrics/fastcache v1.6.0 // indirect
+	github.com/cespare/xxhash/v2 v2.1.1 // indirect
+	github.com/edsrzf/mmap-go v1.0.0 // indirect
+	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
 )

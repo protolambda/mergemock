@@ -113,11 +113,6 @@ func (c *ConsensusCmd) RunNode() {
 	//slots.Reset(c.PastGenesis % c.SlotTime) // TODO
 	defer slots.Stop()
 
-	var (
-		key, _ = crypto.HexToECDSA("45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8")
-		addr   = crypto.PubkeyToAddress(key.PublicKey)
-		signer = types.NewLondonSigner(common.Big1)
-	)
 
 	for {
 		select {
@@ -142,24 +137,7 @@ func (c *ConsensusCmd) RunNode() {
 			gasLimit := c.mockChain.gspec.GasLimit
 			extraData := []byte("proto says hi")
 			uncleBlocks := []*types.Header{} // none in proof of stake
-
-			creator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
-				// TODO create some more txs
-
-				txdata := &types.DynamicFeeTx{
-					ChainID:   config.ChainID,
-					Nonce:     statedb.GetNonce(addr),
-					To:        &addr,
-					Gas:       30000,
-					GasFeeCap: new(big.Int).Mul(big.NewInt(5), big.NewInt(params.GWei)),
-					GasTipCap: big.NewInt(2),
-					Data:      []byte{},
-				}
-				tx := types.NewTx(txdata)
-				tx, _ = types.SignTx(tx, signer, key)
-
-				return []*types.Transaction{tx}
-			})
+			creator := TransactionsCreator(dummyTxCreator)
 
 			block, err := c.mockChain.AddNewBlock(parent, coinbase, time, gasLimit, creator, extraData, uncleBlocks)
 			if err != nil {
@@ -197,6 +175,29 @@ func (c *ConsensusCmd) RunNode() {
 			c.mockChain.Close()
 		}
 	}
+}
+
+func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
+	// TODO create some more txs
+	var (
+		key, _ = crypto.HexToECDSA("45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8")
+		addr   = crypto.PubkeyToAddress(key.PublicKey)
+		signer = types.NewLondonSigner(config.ChainID)
+	)
+
+	txdata := &types.DynamicFeeTx{
+		ChainID:   config.ChainID,
+		Nonce:     statedb.GetNonce(addr),
+		To:        &addr,
+		Gas:       30000,
+		GasFeeCap: new(big.Int).Mul(big.NewInt(5), big.NewInt(params.GWei)),
+		GasTipCap: big.NewInt(2),
+		Data:      []byte{},
+	}
+	tx := types.NewTx(txdata)
+	tx, _ = types.SignTx(tx, signer, key)
+
+	return []*types.Transaction{tx}
 }
 
 func (c *ConsensusCmd) Close() error {

@@ -141,6 +141,9 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 func (c *EngineCmd) RunNode() {
 	c.log.Info("started")
 
+	go c.srv.ListenAndServe()
+	go c.wsSrv.ListenAndServe()
+
 	for {
 		select {
 		case <-c.close:
@@ -148,10 +151,9 @@ func (c *EngineCmd) RunNode() {
 			c.srv.Close()
 			c.wsSrv.Close()
 			return
+		// TODO: any other tasks to run in this loop? mock sync changes?
 		}
 	}
-	go c.srv.ListenAndServe()
-	go c.wsSrv.ListenAndServe()
 }
 
 func (c *EngineCmd) Close() error {

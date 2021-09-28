@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
+
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/holiman/uint256"
-	"reflect"
 
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"

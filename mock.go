@@ -187,10 +187,18 @@ func NewMockChain(log logrus.Ext1FieldLogger, genesis *core.Genesis, db ethdb.Da
 	// TODO: real ethash, with very low difficulty
 	fakeEthash := ethash.NewFaker()
 	execConsensus := &ExecutionConsensusMock{fakeEthash, log}
-	blockchain, _ := core.NewBlockChain(db, nil, genesis.Config, execConsensus, vm.Config{}, nil, nil)
 
 	// todo: is overwriting harmful? Maybe do a safety check in case we restart from an existing db?
-	genesis.Commit(db)
+	genesisBlock, err := genesis.Commit(db)
+	if err != nil {
+		panic(err)
+	}
+	log.WithField("genesis_block", genesisBlock.Hash()).Info("loaded config and committed genesis block")
+
+	blockchain, err := core.NewBlockChain(db, nil, genesis.Config, execConsensus, vm.Config{}, nil, nil)
+	if err != nil {
+		panic(err)
+	}
 
 	return &MockChain{
 		log:           log,
@@ -208,12 +216,12 @@ func (c *MockChain) Head() common.Hash {
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
-func (c *MockChain) AddNewBlock(parentRoot common.Hash, coinbase common.Address, timestamp uint64,
+func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64,
 	gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header) (*types.Block, error) {
 
-	parent := c.blockchain.GetHeaderByHash(parentRoot)
+	parent := c.blockchain.GetHeaderByHash(parentHash)
 	if parent == nil {
-		return nil, fmt.Errorf("unknown parent %s", parentRoot)
+		return nil, fmt.Errorf("unknown parent %s", parentHash)
 	}
 	config := c.gspec.Config
 	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
@@ -221,7 +229,7 @@ func (c *MockChain) AddNewBlock(parentRoot common.Hash, coinbase common.Address,
 		panic(err)
 	}
 	header := &types.Header{
-		ParentHash:  parent.Root,
+		ParentHash:  parent.Hash(),
 		UncleHash:   common.Hash{}, // updated by sealing
 		Coinbase:    coinbase,
 		Root:        common.Hash{}, // updated by Finalize, called within FinalizeAndAssemble
@@ -269,6 +277,10 @@ func (c *MockChain) AddNewBlock(parentRoot common.Hash, coinbase common.Address,
 	}
 	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
 		return nil, fmt.Errorf("trie write error: %v", err)
+	}
+	_, err = c.blockchain.InsertChain(types.Blocks{block})
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert block into chain")
 	}
 	return block, nil
 }

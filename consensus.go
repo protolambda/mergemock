@@ -132,10 +132,11 @@ func (c *ConsensusCmd) RunNode() {
 				continue
 			}
 
-			c.log.WithField("slot", slot).Info("slot trigger")
+			parent := c.mockChain.Head()
+			c.log.WithField("slot", slot).WithField("previous", parent).Info("slot trigger")
 
 			// TODO: fake some forking, different proposers, gas limit (target in london) changes, etc.
-			parent := c.mockChain.Head()
+
 			coinbase := common.Address{1}
 			time := genesisTimestamp + uint64(slot)*12
 			gasLimit := c.mockChain.gspec.GasLimit
@@ -160,7 +161,12 @@ func (c *ConsensusCmd) RunNode() {
 				return []*types.Transaction{tx}
 			})
 
-			c.mockChain.AddNewBlock(parent, coinbase, time, gasLimit, creator, extraData, uncleBlocks)
+			block, err := c.mockChain.AddNewBlock(parent, coinbase, time, gasLimit, creator, extraData, uncleBlocks)
+			if err != nil {
+				c.log.WithError(err).Errorf("failed to add block")
+				continue
+			}
+			c.log.WithField("blockhashd", block.Hash()).Info("inserted new execution block")
 
 			/*
 				basefee := &uint256.NewInt(7)

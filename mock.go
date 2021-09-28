@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
@@ -21,6 +22,7 @@ import (
 	"golang.org/x/crypto/sha3"
 	"math/big"
 	"os"
+	"time"
 )
 
 func LoadGenesisConfig(path string) (*core.Genesis, error) {
@@ -182,9 +184,15 @@ type MockChain struct {
 	database      ethdb.Database
 	execConsensus consensus.Engine
 	blockchain    *core.BlockChain
+
+	beaconGenesisTimestamp uint64
+	timePerSlot            time.Duration
 }
 
-func NewMockChain(log logrus.Ext1FieldLogger, genesis *core.Genesis, db ethdb.Database) *MockChain {
+func NewMockChain(log logrus.Ext1FieldLogger,
+	beaconGenesisTimestamp uint64, timePerSlot time.Duration,
+	genesis *core.Genesis, db ethdb.Database) *MockChain {
+
 	// TODO: real ethash, with very low difficulty
 	fakeEthash := ethash.NewFaker()
 	execConsensus := &ExecutionConsensusMock{fakeEthash, log}
@@ -206,11 +214,13 @@ func NewMockChain(log logrus.Ext1FieldLogger, genesis *core.Genesis, db ethdb.Da
 	}
 
 	return &MockChain{
-		log:           log,
-		gspec:         genesis,
-		database:      db,
-		execConsensus: execConsensus,
-		blockchain:    blockchain,
+		log:                    log,
+		gspec:                  genesis,
+		database:               db,
+		execConsensus:          execConsensus,
+		blockchain:             blockchain,
+		beaconGenesisTimestamp: beaconGenesisTimestamp,
+		timePerSlot:            timePerSlot,
 	}
 }
 
@@ -218,6 +228,10 @@ type TransactionsCreator func(config *params.ChainConfig, bc core.ChainContext, 
 
 func (c *MockChain) Head() common.Hash {
 	return c.blockchain.CurrentBlock().Hash()
+}
+
+func (c *MockChain) SlotTimestamp(slot uint64) uint64 {
+	return c.beaconGenesisTimestamp + uint64((time.Duration(slot) * c.timePerSlot).Seconds())
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
@@ -235,7 +249,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	}
 	header := &types.Header{
 		ParentHash:  parent.Hash(),
-		UncleHash:   common.Hash{}, // updated by sealing
+		UncleHash:   common.Hash{}, // updated by sealing, if necessary
 		Coinbase:    coinbase,
 		Root:        common.Hash{}, // updated by Finalize, called within FinalizeAndAssemble
 		TxHash:      common.Hash{}, // part of assembling
@@ -261,18 +275,111 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	receipts := make([]*types.Receipt, 0)
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
 	txs := txsCreator(config, c.blockchain, statedb, header, vm.Config{})
-	for _, tx := range txs {
+	for i, tx := range txs {
 		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vm.Config{})
 		if err != nil {
-			return nil, fmt.Errorf("failed to apply transaction: %v", err)
+			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
 		receipts = append(receipts, receipt)
 	}
+
+	// TODO: not running sealing
 
 	// Finalize and seal the block
 	block, err := c.execConsensus.FinalizeAndAssemble(&fakeChainReader{config}, header, statedb, txs, uncles, receipts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to finalize and assemble block: %v", err)
+	}
+
+	// Write state changes to db
+	root, err := statedb.Commit(config.IsEIP158(header.Number))
+	if err != nil {
+		return nil, fmt.Errorf("state write error: %v", err)
+	}
+	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
+		return nil, fmt.Errorf("trie write error: %v", err)
+	}
+	_, err = c.blockchain.InsertChain(types.Blocks{block})
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert block into chain")
+	}
+	return block, nil
+}
+
+func (c *MockChain) ProcessPayload(payload *ExecutionPayload, slot uint64) (*types.Block, error) {
+	expectedTimestamp := c.beaconGenesisTimestamp + uint64((time.Duration(slot) * c.timePerSlot).Seconds())
+	if uint64(payload.Timestamp) != expectedTimestamp {
+		return nil, fmt.Errorf("wrong timestamp: got %d, expected %d", payload.Timestamp, expectedTimestamp)
+	}
+
+	parent := c.blockchain.GetHeaderByHash(payload.ParentHash)
+	if parent == nil {
+		return nil, fmt.Errorf("unknown parent %s", payload.ParentHash)
+	}
+	config := c.gspec.Config
+	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
+	if err != nil {
+		panic(err)
+	}
+	header := &types.Header{
+		ParentHash:  parent.Hash(),
+		UncleHash:   common.Hash{}, // updated by sealing, if necessary
+		Coinbase:    payload.Coinbase,
+		Root:        common.Hash{}, // state root verified after processing
+		TxHash:      common.Hash{}, // part of assembling
+		ReceiptHash: common.Hash{}, // receipt root verified after processing
+		Bloom:       types.Bloom{}, // bloom verified after processing
+		Difficulty:  big.NewInt(1),
+		Number:      new(big.Int).Add(parent.Number, common.Big1),
+		GasLimit:    uint64(payload.GasLimit),
+		GasUsed:     0,                         // updated by processing
+		Time:        uint64(payload.Timestamp), // verified against slot
+		Extra:       payload.ExtraData,
+		MixDigest:   common.Hash{},                 // updated by sealing, if necessary
+		Nonce:       types.BlockNonce{},            // updated by sealing, if necessary
+		BaseFee:     payload.BaseFeePerGas.ToBig(), // verified by consensus engine (if necessary)
+	}
+	if config.IsLondon(header.Number) {
+		header.BaseFee = misc.CalcBaseFee(config, parent)
+		if !config.IsLondon(parent.Number) {
+			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
+			header.GasLimit = core.CalcGasLimit(parentGasLimit, gasLimit)
+		}
+	}
+	receipts := make([]*types.Receipt, 0)
+	gasPool := new(core.GasPool).AddGas(header.GasLimit)
+	txs := make([]*types.Transaction, 0, len(payload.Transactions))
+	for i, otx := range payload.Transactions {
+		var tx types.Transaction
+		if err := tx.UnmarshalBinary(otx); err != nil {
+			return nil, fmt.Errorf("failed to decode tx %d: %v", i, err)
+		}
+		txs = append(txs, &tx)
+		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vm.Config{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
+		}
+		receipts = append(receipts, receipt)
+	}
+
+	// verify state root is correct, and build the block
+	stateRoot := statedb.IntermediateRoot(config.IsEIP158(header.Number))
+	if stateRoot != common.Hash(payload.StateRoot) {
+		return nil, fmt.Errorf("state root difference: %s <> %s", stateRoot, payload.StateRoot)
+	}
+	header.Root = stateRoot
+	block := types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil))
+
+	if used := block.GasUsed(); used != uint64(payload.GasUsed) {
+		return nil, fmt.Errorf("gas usage difference: %d <> %d", payload.GasUsed, header.GasUsed)
+	}
+
+	if receiptHash := block.ReceiptHash(); receiptHash != common.Hash(payload.ReceiptRoot) {
+		return nil, fmt.Errorf("receipt root difference: %s <> %s", receiptHash, payload.ReceiptRoot)
+	}
+
+	if bloom := block.Bloom(); Bytes256(bloom) != payload.LogsBloom {
+		return nil, fmt.Errorf("logs bloom difference: %s <> %s", bloom, payload.LogsBloom)
 	}
 
 	// Write state changes to db
@@ -301,4 +408,12 @@ func (c *MockChain) Close() error {
 	}
 	// TODO: maybe clean up?
 	return nil
+}
+
+func mockRandomValue(seed [32]byte) [32]byte {
+	h := sha256.New()
+	h.Write(seed[:])
+	var random Bytes32
+	copy(random[:], h.Sum(nil))
+	return random
 }

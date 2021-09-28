@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"reflect"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -31,20 +33,6 @@ func (b *Bytes32) UnmarshalText(text []byte) error {
 }
 
 func (b *Bytes32) MarshalText() ([]byte, error) {
-	return hexutil.Bytes(b[:]).MarshalText()
-}
-
-type Bytes20 [20]byte
-
-func (b *Bytes20) UnmarshalJSON(text []byte) error {
-	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
-}
-
-func (b *Bytes20) UnmarshalText(text []byte) error {
-	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
-}
-
-func (b *Bytes20) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
 }
 
@@ -103,8 +91,8 @@ func (id PayloadID) MarshalText() ([]byte, error) {
 }
 
 type ExecutionPayload struct {
-	ParentHash    Bytes32         `json:"parentHash"`
-	Coinbase      Bytes20         `json:"coinbase"`
+	ParentHash    common.Hash     `json:"parentHash"`
+	Coinbase      common.Address  `json:"coinbase"`
 	StateRoot     Bytes32         `json:"stateRoot"`
 	ReceiptRoot   Bytes32         `json:"receiptRoot"`
 	LogsBloom     Bytes256        `json:"logsBloom"`
@@ -123,13 +111,13 @@ type ExecutionPayload struct {
 
 type PreparePayloadParams struct {
 	// hash of the parent block
-	ParentHash Bytes32 `json:"parentHash"`
+	ParentHash common.Hash `json:"parentHash"`
 	// value for the timestamp field of the new payload
 	Timestamp Uint64Quantity `json:"timestamp"`
 	// value for the random field of the new payload
 	Random Bytes32 `json:"random"`
 	// suggested value for the coinbase field of the new payload
-	FeeRecipient Bytes20 `json:"feeRecipient"`
+	FeeRecipient common.Address `json:"feeRecipient"`
 }
 
 type ExecutionPayloadStatus string
@@ -173,7 +161,7 @@ func PreparePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	params *PreparePayloadParams) (payloadId PayloadID, err error) {
 
 	e := log.WithField("params", params)
-	e.Trace("preparing payload")
+	e.Debug("preparing payload")
 	err = cl.CallContext(ctx, &payloadId, "engine_preparePayload", params)
 	if err != nil {
 		e = e.WithError(err)
@@ -191,7 +179,7 @@ func PreparePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 		}
 		return 0, err
 	}
-	e.WithField("payload_id", payloadId).Trace("prepared payload")
+	e.WithField("payload_id", payloadId).Debug("prepared payload")
 	return
 }
 
@@ -199,7 +187,7 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	payloadId PayloadID) (*ExecutionPayload, error) {
 
 	e := log.WithField("payload_id", payloadId)
-	e.Trace("getting payload")
+	e.Debug("getting payload")
 	var result ExecutionPayload
 	err := cl.CallContext(ctx, &result, "engine_getPayload", payloadId)
 	if err != nil {
@@ -216,7 +204,7 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 		}
 		return nil, err
 	}
-	e.Trace("Received payload")
+	e.Debug("Received payload")
 	return &result, nil
 }
 
@@ -224,14 +212,14 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	payload *ExecutionPayload) (ExecutionPayloadStatus, error) {
 
 	e := log.WithField("payload", payload)
-	e.Trace("sending payload for execution")
+	e.Debug("sending payload for execution")
 	var result ExecutePayloadResult
 	err := cl.CallContext(ctx, &result, "engine_executePayload", payload)
 	if err != nil {
 		e.WithError(err).Error("payload execution failed")
 		return "", err
 	}
-	e.Trace("Received payload execution result")
+	e.WithField("status", result.Status).Debug("Received payload execution result")
 	return result.Status, nil
 }
 
@@ -239,11 +227,11 @@ func ConsensusValidated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Fiel
 	params := ConsensusValidatedParams{BlockHash: blockHash, Status: status}
 
 	e := log.WithField("block_hash", blockHash).WithField("status", status)
-	e.Trace("sharing consensus-validated signal")
+	e.Debug("sharing consensus-validated signal")
 
 	err := cl.CallContext(ctx, nil, "engine_consensusValidated", params)
 	if err == nil || err == rpc.ErrNoResult {
-		e.Trace("shared consensus-validated signal")
+		e.Debug("shared consensus-validated signal")
 		return nil
 	} else {
 		e = e.WithError(err)
@@ -265,11 +253,11 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	params := ForkchoiceUpdatedParams{HeadBlockHash: head, FinalizedBlockHash: finalized}
 
 	e := log.WithField("head", head).WithField("finalized", finalized)
-	e.Trace("sharing forkchoice-updated signal")
+	e.Debug("sharing forkchoice-updated signal")
 
 	err := cl.CallContext(ctx, nil, "engine_forkchoiceUpdated", params)
 	if err == nil || err == rpc.ErrNoResult {
-		e.Trace("shared forkchoice-updated signal")
+		e.Debug("shared forkchoice-updated signal")
 		return nil
 	} else {
 		e = e.WithError(err)
@@ -285,4 +273,40 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 		}
 		return err
 	}
+}
+
+func BlockToPayload(bl *types.Block, random Bytes32) (*ExecutionPayload, error) {
+	extra := bl.Extra()
+	if len(extra) > 32 {
+		return nil, fmt.Errorf("eth2 merge spec limits extra data to 32 bytes in payload, got %d", len(extra))
+	}
+	baseFee, overflow := uint256.FromBig(bl.BaseFee())
+	if overflow {
+		return nil, fmt.Errorf("overflowing base fee")
+	}
+	txs := bl.Transactions()
+	txsEncoded := make([]Data, 0, len(txs))
+	for i, tx := range txs {
+		txOpaque, err := tx.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode tx %d", i)
+		}
+		txsEncoded = append(txsEncoded, txOpaque)
+	}
+	return &ExecutionPayload{
+		ParentHash:    bl.ParentHash(),
+		Coinbase:      bl.Coinbase(),
+		StateRoot:     Bytes32(bl.Root()),
+		ReceiptRoot:   Bytes32(bl.ReceiptHash()),
+		LogsBloom:     Bytes256(bl.Bloom()),
+		Random:        random,
+		BlockNumber:   Uint64Quantity(bl.NumberU64()),
+		GasLimit:      Uint64Quantity(bl.GasLimit()),
+		GasUsed:       Uint64Quantity(bl.GasUsed()),
+		Timestamp:     Uint64Quantity(bl.Time()),
+		ExtraData:     BytesMax32(extra),
+		BaseFeePerGas: Uint256Quantity(*baseFee),
+		BlockHash:     Bytes32(bl.Hash()),
+		Transactions:  txsEncoded,
+	}, nil
 }

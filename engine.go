@@ -145,7 +145,7 @@ func (c *EngineCmd) RunNode() {
 			c.srv.Close()
 			c.wsSrv.Close()
 			return
-		// TODO: any other tasks to run in this loop? mock sync changes?
+			// TODO: any other tasks to run in this loop? mock sync changes?
 		}
 	}
 }

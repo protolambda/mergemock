@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/holiman/uint256"
+	"reflect"
 
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
@@ -15,16 +19,87 @@ const (
 	UnavailablePayload ErrorCode = 5
 )
 
-// TODO: swap for geth hexutil types, zrnt types, or implement json methods
-
 type Bytes32 [32]byte
+
+func (b *Bytes32) UnmarshalJSON(text []byte) error {
+	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
+}
+
+func (b *Bytes32) UnmarshalText(text []byte) error {
+	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
+}
+
+func (b *Bytes32) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(b[:]).MarshalText()
+}
+
 type Bytes20 [20]byte
+
+func (b *Bytes20) UnmarshalJSON(text []byte) error {
+	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
+}
+
+func (b *Bytes20) UnmarshalText(text []byte) error {
+	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
+}
+
+func (b *Bytes20) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(b[:]).MarshalText()
+}
+
 type Bytes256 [256]byte
-type Uint64Quantity uint64
+
+func (b *Bytes256) UnmarshalJSON(text []byte) error {
+	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
+}
+
+func (b *Bytes256) UnmarshalText(text []byte) error {
+	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
+}
+
+func (b *Bytes256) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(b[:]).MarshalText()
+}
+
+type Uint64Quantity = hexutil.Uint64
+
 type BytesMax32 []byte
-type Uint256Quantity [32]byte
-type Data []byte
+
+func (b *BytesMax32) UnmarshalJSON(text []byte) error {
+	if len(text) > 64+2+2 { // account for delimiter "", and 0x prefix
+		return fmt.Errorf("input too long, expected at most 32 hex-encoded, 0x-prefixed, bytes: %x", text)
+	}
+	return (*hexutil.Bytes)(b).UnmarshalJSON(text)
+}
+
+func (b *BytesMax32) UnmarshalText(text []byte) error {
+	if len(text) > 64+2 { // account for 0x prefix
+		return fmt.Errorf("input too long, expected at most 32 hex-encoded, 0x-prefixed, bytes: %x", text)
+	}
+	return (*hexutil.Bytes)(b).UnmarshalText(text)
+}
+
+func (b BytesMax32) MarshalText() ([]byte, error) {
+	return (hexutil.Bytes)(b).MarshalText()
+}
+
+type Uint256Quantity = uint256.Int
+
+type Data = hexutil.Bytes
+
 type PayloadID uint64
+
+func (id *PayloadID) UnmarshalJSON(text []byte) error {
+	return (*hexutil.Uint64)(id).UnmarshalJSON(text)
+}
+
+func (id *PayloadID) UnmarshalText(text []byte) error {
+	return (*hexutil.Uint64)(id).UnmarshalText(text)
+}
+
+func (id PayloadID) MarshalText() ([]byte, error) {
+	return hexutil.Uint64(id).MarshalText()
+}
 
 type ExecutionPayload struct {
 	ParentHash    Bytes32         `json:"parentHash"`

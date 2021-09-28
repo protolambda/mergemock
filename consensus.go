@@ -2,15 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/state"
 	"math"
 	"math/big"
-	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -42,9 +40,7 @@ type ConsensusCmd struct {
 	ctx    context.Context
 	engine *rpc.Client
 
-	gspec      *core.Genesis
-	database   ethdb.Database
-	blockchain *core.BlockChain
+	mockChain *MockChain
 }
 
 func (c *ConsensusCmd) Default() {
@@ -85,10 +81,11 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		}
 	}
 
-	c.database = db
-	c.initGensis()
-	blockchain, _ := core.NewBlockChain(c.database, nil, c.gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
-	c.blockchain = blockchain
+	genesis, err := LoadGenesisConfig(c.GenesisPath)
+	if err != nil {
+		return err
+	}
+	c.mockChain = NewMockChain(log, genesis, db)
 
 	c.log = log
 	c.engine = client
@@ -104,6 +101,7 @@ func (c *ConsensusCmd) RunNode() {
 	c.log.Info("started")
 
 	genesisTime := time.Now().Add(-c.PastGenesis)
+	genesisTimestamp := uint64(genesisTime.Unix())
 
 	slotsPastGenesis := c.PastGenesis / c.SlotTime
 	if slotsPastGenesis > 0 {
@@ -119,7 +117,6 @@ func (c *ConsensusCmd) RunNode() {
 		key, _ = crypto.HexToECDSA("45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8")
 		addr   = crypto.PubkeyToAddress(key.PublicKey)
 		signer = types.NewLondonSigner(common.Big1)
-		faker  = ethash.NewFaker()
 	)
 
 	for {
@@ -136,14 +133,21 @@ func (c *ConsensusCmd) RunNode() {
 			}
 
 			c.log.WithField("slot", slot).Info("slot trigger")
-			state, _ := c.blockchain.State()
 
-			blocks, _ := core.GenerateChain(c.gspec.Config, c.blockchain.CurrentBlock(), faker, c.database, 1, func(i int, b *core.BlockGen) {
-				b.SetCoinbase(common.Address{1})
+			// TODO: fake some forking, different proposers, gas limit (target in london) changes, etc.
+			parent := c.mockChain.Head()
+			coinbase := common.Address{1}
+			time := genesisTimestamp + uint64(slot)*12
+			gasLimit := c.mockChain.gspec.GasLimit
+			extraData := []byte("proto says hi")
+			uncleBlocks := []*types.Header{} // none in proof of stake
+
+			creator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
+				// TODO create some more txs
 
 				txdata := &types.DynamicFeeTx{
-					ChainID:   c.gspec.Config.ChainID,
-					Nonce:     state.GetNonce(addr),
+					ChainID:   config.ChainID,
+					Nonce:     statedb.GetNonce(addr),
 					To:        &addr,
 					Gas:       30000,
 					GasFeeCap: new(big.Int).Mul(big.NewInt(5), big.NewInt(params.GWei)),
@@ -153,12 +157,10 @@ func (c *ConsensusCmd) RunNode() {
 				tx := types.NewTx(txdata)
 				tx, _ = types.SignTx(tx, signer, key)
 
-				b.AddTx(tx)
+				return []*types.Transaction{tx}
 			})
 
-			if _, err := c.blockchain.InsertChain(blocks); err != nil {
-				panic(err)
-			}
+			c.mockChain.AddNewBlock(parent, coinbase, time, gasLimit, creator, extraData, uncleBlocks)
 
 			/*
 				basefee := &uint256.NewInt(7)
@@ -186,6 +188,7 @@ func (c *ConsensusCmd) RunNode() {
 		case <-c.close:
 			c.log.Info("closing consensus mock node")
 			c.engine.Close()
+			c.mockChain.Close()
 		}
 	}
 }
@@ -195,21 +198,4 @@ func (c *ConsensusCmd) Close() error {
 		c.close <- struct{}{}
 	}
 	return nil
-}
-
-func (c *ConsensusCmd) initGensis() (*types.Block, error) {
-	file, err := os.Open(c.GenesisPath)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to read genesis file: %v", err)
-	}
-	defer file.Close()
-
-	gspec := new(core.Genesis)
-	if err := json.NewDecoder(file).Decode(gspec); err != nil {
-		return nil, fmt.Errorf("Invalid genesis file: %v", err)
-	}
-
-	c.gspec = gspec
-
-	return gspec.Commit(c.database)
 }

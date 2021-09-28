@@ -22,6 +22,16 @@ const (
 	UnavailablePayload ErrorCode = 5
 )
 
+// received message isn't a valid request
+type rpcError struct {
+	err error
+	id  ErrorCode
+}
+
+func (e *rpcError) ErrorCode() int { return int(e.id) }
+
+func (e *rpcError) Error() string { return e.err.Error() }
+
 type Bytes32 [32]byte
 
 func (b *Bytes32) UnmarshalJSON(text []byte) error {

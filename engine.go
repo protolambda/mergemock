@@ -2,9 +2,19 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 	"log"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	gethnode "github.com/ethereum/go-ethereum/node"
@@ -14,6 +24,13 @@ import (
 
 type EngineCmd struct {
 	// TODO options
+
+	PastGenesis   time.Duration `ask:"--past-genesis" help:"Time past genesis (can be negative for pre-genesis)"`
+	SlotTime      time.Duration `ask:"--slot-time" help:"Time per slot"`
+	SlotsPerEpoch uint64        `ask:"--slots-per-epoch" help:"Slots per epoch"`
+
+	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
+	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
 
 	// embed logger options
 	LogCmd `ask:".log" help:"Change logger configuration"`
@@ -65,7 +82,27 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 
 	c.close = make(chan struct{})
 
-	backend := &EngineBackend{log: logr}
+	var db ethdb.Database
+	if c.DataDir == "" {
+		db = rawdb.NewMemoryDatabase()
+	} else {
+		db, err = rawdb.NewLevelDBDatabaseWithFreezer(c.DataDir, 128, 128, c.DataDir, "", false)
+		if err != nil {
+			return err
+		}
+	}
+
+	genesis, err := LoadGenesisConfig(c.GenesisPath)
+	if err != nil {
+		return err
+	}
+
+	genesisTime := time.Now().Add(-c.PastGenesis)
+	genesisTimestamp := uint64(genesisTime.Unix())
+
+	mockChain := NewMockChain(logr, genesisTimestamp, c.SlotTime, genesis, db)
+
+	backend := &EngineBackend{log: logr, mockChain: mockChain}
 
 	c.rpcSrv = rpc.NewServer()
 	c.rpcSrv.RegisterName("engine", backend)
@@ -157,20 +194,63 @@ func (c *EngineCmd) Close() error {
 }
 
 type EngineBackend struct {
-	log logrus.Ext1FieldLogger
+	payloadIdCounter PayloadID
+
+	log       logrus.Ext1FieldLogger
+	mockChain *MockChain
+
+	recentPayloads *lru.Cache
 }
 
-func (e *EngineBackend) PreparePayload(ctx context.Context, params *PreparePayloadParams) (PayloadID, error) {
+func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadParams) (PayloadID, error) {
+	gasLimit := e.mockChain.gspec.GasLimit
+	txsCreator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext,
+		statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
+		// empty payload
 
-	return 0, nil
+		// TODO: maybe vary these a little?
+		return nil
+	})
+	extraData := []byte{}
+
+	id := PayloadID(atomic.AddUint64((*uint64)(&e.payloadIdCounter), 1))
+
+	bl, err := e.mockChain.AddNewBlock(p.ParentHash, p.FeeRecipient, uint64(p.Timestamp),
+		gasLimit, txsCreator, extraData, nil, false)
+
+	if err != nil {
+		// TODO: proper error codes
+		return 0, err
+	}
+
+	// store in cache for later retrieval
+	e.recentPayloads.Add(id, bl)
+
+	return id, nil
 }
 
 func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
-	return nil, nil
+	payload, ok := e.recentPayloads.Get(id)
+	if !ok {
+		return nil, &rpcError{err: fmt.Errorf("unknown payload %d", id), id: UnavailablePayload}
+	}
+
+	return payload.(*ExecutionPayload), nil
 }
 
 func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
-	return nil, nil
+	parent := e.mockChain.blockchain.GetHeaderByHash(payload.ParentHash)
+	if parent == nil {
+		// TODO
+		return &ExecutePayloadResult{Status: ExecutionSyncing}, nil
+	}
+
+	_, err := e.mockChain.ProcessPayload(payload)
+	if err != nil {
+		// TODO proper error codes
+		return nil, err
+	}
+	return &ExecutePayloadResult{Status: ExecutionValid}, nil
 }
 
 func (e *EngineBackend) ConsensusValidated(ctx context.Context, params *ConsensusValidatedParams) error {
@@ -180,5 +260,3 @@ func (e *EngineBackend) ConsensusValidated(ctx context.Context, params *Consensu
 func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, params *ForkchoiceUpdatedParams) error {
 	return nil
 }
-
-// TODO: more engine methods

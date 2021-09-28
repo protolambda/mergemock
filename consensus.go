@@ -29,8 +29,8 @@ type ConsensusCmd struct {
 	// - % random finality
 
 	EngineAddr  string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
-	DataDir     string `ask:"--datadir" help:"Directory to store chain data (empty for in-memory data)"`
-	GenesisPath string `ask:"--genesis" help:"Genesis config file"`
+	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
+	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -165,7 +165,7 @@ func (c *ConsensusCmd) RunNode() {
 					uncleBlocks := []*types.Header{} // none in proof of stake
 					creator := TransactionsCreator(dummyTxCreator)
 
-					block, err := c.mockChain.AddNewBlock(parent, coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks)
+					block, err := c.mockChain.AddNewBlock(parent, coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
 					if err != nil {
 						slotLog.WithError(err).Errorf("failed to add block")
 						continue
@@ -200,8 +200,11 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 	if consensusFail {
 		log.Info("mocking a failed proposal on consensus-side, ignoring produced payload of engine")
 	} else {
-
-		bl, err := c.mockChain.ProcessPayload(payload, slot)
+		if err := c.mockChain.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
+			log.WithError(err).Error("payload has bad timestamp")
+			return
+		}
+		bl, err := c.mockChain.ProcessPayload(payload)
 		if err != nil {
 			log.WithError(err).Error("failed to process execution payload from engine")
 			return

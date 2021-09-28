@@ -236,7 +236,7 @@ func (c *MockChain) SlotTimestamp(slot uint64) uint64 {
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
 func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64,
-	gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header) (*types.Block, error) {
+	gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
 
 	parent := c.blockchain.GetHeaderByHash(parentHash)
 	if parent == nil {
@@ -299,18 +299,24 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
 		return nil, fmt.Errorf("trie write error: %v", err)
 	}
-	_, err = c.blockchain.InsertChain(types.Blocks{block})
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert block into chain")
+	if storeBlock {
+		_, err = c.blockchain.InsertChain(types.Blocks{block})
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert block into chain")
+		}
 	}
 	return block, nil
 }
 
-func (c *MockChain) ProcessPayload(payload *ExecutionPayload, slot uint64) (*types.Block, error) {
+func (c *MockChain) ValidateTimestamp(timestamp uint64, slot uint64) error {
 	expectedTimestamp := c.beaconGenesisTimestamp + uint64((time.Duration(slot) * c.timePerSlot).Seconds())
-	if uint64(payload.Timestamp) != expectedTimestamp {
-		return nil, fmt.Errorf("wrong timestamp: got %d, expected %d", payload.Timestamp, expectedTimestamp)
+	if uint64(timestamp) != expectedTimestamp {
+		return fmt.Errorf("wrong timestamp: got %d, expected %d", timestamp, expectedTimestamp)
 	}
+	return nil
+}
+
+func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, error) {
 
 	parent := c.blockchain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
@@ -343,7 +349,10 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload, slot uint64) (*typ
 		header.BaseFee = misc.CalcBaseFee(config, parent)
 		if !config.IsLondon(parent.Number) {
 			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
-			header.GasLimit = core.CalcGasLimit(parentGasLimit, gasLimit)
+			adjusted := core.CalcGasLimit(parentGasLimit, uint64(payload.GasLimit))
+			if adjusted != uint64(payload.GasLimit) {
+				return nil, fmt.Errorf("gas limit too far off: %d <> %d", adjusted, payload.GasLimit)
+			}
 		}
 	}
 	receipts := make([]*types.Receipt, 0)
@@ -355,7 +364,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload, slot uint64) (*typ
 			return nil, fmt.Errorf("failed to decode tx %d: %v", i, err)
 		}
 		txs = append(txs, &tx)
-		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vm.Config{})
+		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, &tx, &header.GasUsed, vm.Config{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}

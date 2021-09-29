@@ -5,6 +5,85 @@ testing.
 
 **work in progress**
 
+## Quick Start
+
+To get started, build `mergemock` and download the `genesis.json`.
+
+```console
+$ go build . mergemock
+$ wget https://gist.githubusercontent.com/lightclient/799c727e826483a2804fc5013d0d3e3d/raw/2e8824fa8d9d9b040f351b86b75c66868fb9b115/genesis.json
+$ ./mergemock engine
+$ ./mergemock consensus --slot-time=4s
+```
+
+## Usage
+
+### `engine`
+
+```console
+$ mergemock engine --help
+
+Run a mock Execution Engine.
+
+  --past-genesis              Time past genesis (can be negative for pre-genesis) (default: 0s) (type: duration)
+  --slot-time                 Time per slot (default: 0s) (type: duration)
+  --slots-per-epoch           Slots per epoch (default: 0) (type: uint64)
+  --datadir                   Directory to store execution chain data (empty for in-memory data) (type: string)
+  --genesis                   Genesis execution-config file (type: string)
+  --listen-addr               Address to bind RPC HTTP server to (default: 127.0.0.1:8550) (type: string)
+  --ws-addr                   Address to serve /ws endpoint on for websocket JSON-RPC (default: 127.0.0.1:8551) (type: string)
+  --cors                      List of allowable origins (CORS http header) (default: *) (type: stringSlice)
+
+# log
+Change logger configuration
+
+  --log.level                 Log level: trace, debug, info, warn/warning, error, fatal, panic. Capitals are accepted too. (default: info) (type: string)
+  --log.color                 Color the log output. Defaults to true if terminal is detected. (default: true) (type: bool)
+  --log.format                Format the log output. Supported formats: 'text', 'json' (default: text) (type: string)
+  --log.timestamps            Timestamp format in logging. Empty disables timestamps. (default: 2006-01-02T15:04:05Z07:00) (type: string)
+
+# timeout
+Configure timeouts of the HTTP servers
+
+  --timeout.read              Timeout for body reads. None if 0. (default: 30s) (type: duration)
+  --timeout.read-header       Timeout for header reads. None if 0. (default: 10s) (type: duration)
+  --timeout.write             Timeout for writes. None if 0. (default: 30s) (type: duration)
+  --timeout.idle              Timeout to disconnect idle client connections. None if 0. (default: 5m0s) (type: duration)
+```
+
+
+### `consensus`
+
+```console
+$ mergemock consensus --help
+
+Run a mock Consensus client.
+
+  --past-genesis              Time past genesis (can be negative for pre-genesis) (default: 0s) (type: duration)
+  --slot-time                 Time per slot (default: 12s) (type: duration)
+  --slots-per-epoch           Slots per epoch (default: 32) (type: uint64)
+  --engine                    Address of Engine JSON-RPC endpoint to use (default: http://127.0.0.1:8550) (type: string)
+  --datadir                   Directory to store execution chain data (empty for in-memory data) (type: string)
+  --genesis                   Genesis execution-config file (default: genesis.json) (type: string)
+  --rng                       seed the RNG with an integer number (default: 1234) (type: RNG)
+
+# freq
+Modify frequencies of certain behavior
+
+  --freq.gap                  How often an execution block is missing (default: 0.05) (type: float64)
+  --freq.proposal             How often the engine gets to propose a block (default: 0.2) (type: float64)
+  --freq.ignore               How often the payload produced by the engine does not become canonical (default: 0.1) (type: float64)
+  --freq.finality             How often an epoch succeeds to finalize (default: 0.1) (type: float64)
+
+# log
+Change logger configuration
+
+  --log.level                 Log level: trace, debug, info, warn/warning, error, fatal, panic. Capitals are accepted too. (default: info) (type: string)
+  --log.color                 Color the log output. Defaults to true if terminal is detected. (default: true) (type: bool)
+  --log.format                Format the log output. Supported formats: 'text', 'json' (default: text) (type: string)
+  --log.timestamps            Timestamp format in logging. Empty disables timestamps. (default: 2006-01-02T15:04:05Z07:00) (type: string)
+```
+
 ## Behaviour
 
 ### Execution Engine Mock

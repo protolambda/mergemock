@@ -113,7 +113,7 @@ type ExecutionPayload struct {
 	Timestamp     Uint64Quantity  `json:"timestamp"`
 	ExtraData     BytesMax32      `json:"extraData"`
 	BaseFeePerGas Uint256Quantity `json:"baseFeePerGas"`
-	BlockHash     Bytes32         `json:"blockHash"`
+	BlockHash     common.Hash     `json:"blockHash"`
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
 	Transactions []Data `json:"transactions"`
@@ -221,7 +221,7 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	payload *ExecutionPayload) (ExecutionPayloadStatus, error) {
 
-	e := log.WithField("payload", payload)
+	e := log.WithField("block_hash", payload.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutePayloadResult
 	err := cl.CallContext(ctx, &result, "engine_executePayload", payload)
@@ -316,7 +316,7 @@ func BlockToPayload(bl *types.Block, random Bytes32) (*ExecutionPayload, error) 
 		Timestamp:     Uint64Quantity(bl.Time()),
 		ExtraData:     BytesMax32(extra),
 		BaseFeePerGas: Uint256Quantity(*baseFee),
-		BlockHash:     Bytes32(bl.Hash()),
+		BlockHash:     bl.Hash(),
 		Transactions:  txsEncoded,
 	}, nil
 }

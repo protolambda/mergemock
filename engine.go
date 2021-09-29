@@ -25,9 +25,9 @@ import (
 type EngineCmd struct {
 	// TODO options
 
-	PastGenesis   time.Duration `ask:"--past-genesis" help:"Time past genesis (can be negative for pre-genesis)"`
-	SlotTime      time.Duration `ask:"--slot-time" help:"Time per slot"`
-	SlotsPerEpoch uint64        `ask:"--slots-per-epoch" help:"Slots per epoch"`
+	BeaconGenesisTime uint64        `ask:"--beacon-genesis-time" help:"Beacon genesis time"`
+	SlotTime          time.Duration `ask:"--slot-time" help:"Time per slot"`
+	SlotsPerEpoch     uint64        `ask:"--slots-per-epoch" help:"Slots per epoch"`
 
 	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
@@ -57,6 +57,10 @@ type EngineCmd struct {
 }
 
 func (c *EngineCmd) Default() {
+	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
+
+	c.GenesisPath = "genesis.json"
+
 	c.ListenAddr = "127.0.0.1:8550"
 	c.WebsocketAddr = "127.0.0.1:8551"
 
@@ -97,10 +101,7 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	genesisTime := time.Now().Add(-c.PastGenesis)
-	genesisTimestamp := uint64(genesisTime.Unix())
-
-	mockChain := NewMockChain(logr, genesisTimestamp, c.SlotTime, genesis, db)
+	mockChain := NewMockChain(logr, c.BeaconGenesisTime, c.SlotTime, genesis, db)
 
 	recentPayloadsCache, err := lru.New(10)
 	backend := &EngineBackend{log: logr, mockChain: mockChain, recentPayloads: recentPayloadsCache}
@@ -204,6 +205,10 @@ type EngineBackend struct {
 }
 
 func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadParams) (PayloadID, error) {
+	id := PayloadID(atomic.AddUint64((*uint64)(&e.payloadIdCounter), 1))
+	plog := e.log.WithField("payload_id", id)
+	plog.WithField("params", p).Info("preparing new payload")
+
 	gasLimit := e.mockChain.gspec.GasLimit
 	txsCreator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext,
 		statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
@@ -214,50 +219,66 @@ func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadPar
 	})
 	extraData := []byte{}
 
-	id := PayloadID(atomic.AddUint64((*uint64)(&e.payloadIdCounter), 1))
-
 	bl, err := e.mockChain.AddNewBlock(p.ParentHash, p.FeeRecipient, uint64(p.Timestamp),
 		gasLimit, txsCreator, extraData, nil, false)
 
 	if err != nil {
 		// TODO: proper error codes
+		plog.WithError(err).Error("failed to create block, cannot build new payload")
+		return 0, err
+	}
+
+	payload, err := BlockToPayload(bl, p.Random)
+	if err != nil {
+		plog.WithError(err).Error("failed to convert block to payload")
+		// TODO: proper error codes
 		return 0, err
 	}
 
 	// store in cache for later retrieval
-	e.recentPayloads.Add(id, bl)
+	e.recentPayloads.Add(id, payload)
 
 	return id, nil
 }
 
 func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
+	plog := e.log.WithField("payload_id", id)
+
 	payload, ok := e.recentPayloads.Get(id)
 	if !ok {
+		plog.Warn("cannot get unknown payload")
 		return nil, &rpcError{err: fmt.Errorf("unknown payload %d", id), id: UnavailablePayload}
 	}
 
+	plog.Info("consensus client retrieved prepared payload")
 	return payload.(*ExecutionPayload), nil
 }
 
 func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+	log := e.log.WithField("block_hash", payload.BlockHash)
 	parent := e.mockChain.blockchain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
+		log.WithField("parent_hash", payload.ParentHash.String()).Warn("cannot execute payload, parent is unknown")
 		// TODO
 		return &ExecutePayloadResult{Status: ExecutionSyncing}, nil
 	}
 
 	_, err := e.mockChain.ProcessPayload(payload)
 	if err != nil {
+		log.WithError(err).Error("failed to execute payload")
 		// TODO proper error codes
 		return nil, err
 	}
+	log.Info("executed payload")
 	return &ExecutePayloadResult{Status: ExecutionValid}, nil
 }
 
 func (e *EngineBackend) ConsensusValidated(ctx context.Context, params *ConsensusValidatedParams) error {
+	e.log.WithField("params", params).Info("consensus validated")
 	return nil
 }
 
 func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, params *ForkchoiceUpdatedParams) error {
+	e.log.WithField("params", params).Info("forkchoice validated")
 	return nil
 }

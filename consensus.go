@@ -21,9 +21,9 @@ import (
 )
 
 type ConsensusCmd struct {
-	PastGenesis   time.Duration `ask:"--past-genesis" help:"Time past genesis (can be negative for pre-genesis)"`
-	SlotTime      time.Duration `ask:"--slot-time" help:"Time per slot"`
-	SlotsPerEpoch uint64        `ask:"--slots-per-epoch" help:"Slots per epoch"`
+	BeaconGenesisTime uint64        `ask:"--beacon-genesis-time" help:"Beacon genesis time"`
+	SlotTime          time.Duration `ask:"--slot-time" help:"Time per slot"`
+	SlotsPerEpoch     uint64        `ask:"--slots-per-epoch" help:"Slots per epoch"`
 	// TODO ideas:
 	// - % random gap slots (= missing beacon blocks)
 	// - % random finality
@@ -47,6 +47,8 @@ type ConsensusCmd struct {
 }
 
 func (c *ConsensusCmd) Default() {
+	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
+
 	c.EngineAddr = "http://127.0.0.1:8550"
 
 	c.GenesisPath = "genesis.json"
@@ -89,10 +91,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	genesisTime := time.Now().Add(-c.PastGenesis)
-	genesisTimestamp := uint64(genesisTime.Unix())
-
-	c.mockChain = NewMockChain(log, genesisTimestamp, c.SlotTime, genesis, db)
+	c.mockChain = NewMockChain(log, c.BeaconGenesisTime, c.SlotTime, genesis, db)
 
 	c.log = log
 	c.engine = client
@@ -107,10 +106,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 func (c *ConsensusCmd) RunNode() {
 	c.log.Info("started")
 
-	slotsPastGenesis := c.PastGenesis / c.SlotTime
-	if slotsPastGenesis > 0 {
-		// TODO: simulate data since genesis
-	}
+	// TODO: simulate data since genesis
 
 	slots := time.NewTicker(c.SlotTime)
 	// align ticker with genesis
@@ -140,9 +136,11 @@ func (c *ConsensusCmd) RunNode() {
 
 			if c.RNG.Float64() < c.Freq.GapSlot {
 				// gap slot
+				slotLog.Info("mocking gap slot, no payload execution here")
 			} else {
 				if c.RNG.Float64() < c.Freq.ProposalFreq {
 					// try get a block from the engine, we're a proposer!
+					slotLog.Info("proposing block with engine")
 
 					// in main loop, avoid concurrent randomness for reproducibility
 					var random32 Bytes32
@@ -156,6 +154,7 @@ func (c *ConsensusCmd) RunNode() {
 					go c.mockProposal(slotLog, parent, slot, coinbase, random32, consensusProposalFail)
 				} else {
 					// build a block, without using the engine, and insert it into the engine
+					slotLog.Info("mocking outside world, creating block without engine")
 
 					// TODO: different proposers, gas limit (target in london) changes, etc.
 					coinbase := common.Address{1}

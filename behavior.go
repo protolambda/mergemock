@@ -43,7 +43,7 @@ type ConsensusBehavior struct {
 func (b *ConsensusBehavior) Default() {
 	b.RNG = RNG{rand.New(rand.NewSource(DefaultRNGSeed))}
 	b.Freq.GapSlot = 0.05
-	b.Freq.ProposalFreq = 0.2
+	b.Freq.ProposalFreq = 0.5
 	b.Freq.FailedProposalFreq = 0.1
 	b.Freq.Finality = 0.1
 }

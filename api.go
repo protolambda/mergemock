@@ -46,6 +46,10 @@ func (b *Bytes32) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
 }
 
+func (b Bytes32) String() string {
+	return hexutil.Encode(b[:])
+}
+
 type Bytes256 [256]byte
 
 func (b *Bytes256) UnmarshalJSON(text []byte) error {
@@ -58,6 +62,10 @@ func (b *Bytes256) UnmarshalText(text []byte) error {
 
 func (b *Bytes256) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
+}
+
+func (b Bytes256) String() string {
+	return hexutil.Encode(b[:])
 }
 
 type Uint64Quantity = hexutil.Uint64
@@ -80,6 +88,10 @@ func (b *BytesMax32) UnmarshalText(text []byte) error {
 
 func (b BytesMax32) MarshalText() ([]byte, error) {
 	return (hexutil.Bytes)(b).MarshalText()
+}
+
+func (b BytesMax32) String() string {
+	return hexutil.Encode(b)
 }
 
 type Uint256Quantity = uint256.Int

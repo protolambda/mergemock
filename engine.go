@@ -25,9 +25,7 @@ import (
 type EngineCmd struct {
 	// TODO options
 
-	BeaconGenesisTime uint64        `ask:"--beacon-genesis-time" help:"Beacon genesis time"`
-	SlotTime          time.Duration `ask:"--slot-time" help:"Time per slot"`
-	SlotsPerEpoch     uint64        `ask:"--slots-per-epoch" help:"Slots per epoch"`
+	SlotsPerEpoch uint64 `ask:"--slots-per-epoch" help:"Slots per epoch"`
 
 	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
@@ -57,8 +55,6 @@ type EngineCmd struct {
 }
 
 func (c *EngineCmd) Default() {
-	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
-
 	c.GenesisPath = "genesis.json"
 
 	c.ListenAddr = "127.0.0.1:8550"
@@ -101,7 +97,7 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	mockChain := NewMockChain(logr, c.BeaconGenesisTime, c.SlotTime, genesis, db)
+	mockChain := NewMockChain(logr, genesis, db)
 
 	recentPayloadsCache, err := lru.New(10)
 	backend := &EngineBackend{log: logr, mockChain: mockChain, recentPayloads: recentPayloadsCache}

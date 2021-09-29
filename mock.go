@@ -22,7 +22,6 @@ import (
 	"golang.org/x/crypto/sha3"
 	"math/big"
 	"os"
-	"time"
 )
 
 func LoadGenesisConfig(path string) (*core.Genesis, error) {
@@ -184,13 +183,9 @@ type MockChain struct {
 	database      ethdb.Database
 	execConsensus consensus.Engine
 	blockchain    *core.BlockChain
-
-	beaconGenesisTimestamp uint64
-	timePerSlot            time.Duration
 }
 
 func NewMockChain(log logrus.Ext1FieldLogger,
-	beaconGenesisTimestamp uint64, timePerSlot time.Duration,
 	genesis *core.Genesis, db ethdb.Database) *MockChain {
 
 	// TODO: real ethash, with very low difficulty
@@ -214,13 +209,11 @@ func NewMockChain(log logrus.Ext1FieldLogger,
 	}
 
 	return &MockChain{
-		log:                    log,
-		gspec:                  genesis,
-		database:               db,
-		execConsensus:          execConsensus,
-		blockchain:             blockchain,
-		beaconGenesisTimestamp: beaconGenesisTimestamp,
-		timePerSlot:            timePerSlot,
+		log:           log,
+		gspec:         genesis,
+		database:      db,
+		execConsensus: execConsensus,
+		blockchain:    blockchain,
 	}
 }
 
@@ -228,10 +221,6 @@ type TransactionsCreator func(config *params.ChainConfig, bc core.ChainContext, 
 
 func (c *MockChain) Head() common.Hash {
 	return c.blockchain.CurrentBlock().Hash()
-}
-
-func (c *MockChain) SlotTimestamp(slot uint64) uint64 {
-	return c.beaconGenesisTimestamp + uint64((time.Duration(slot) * c.timePerSlot).Seconds())
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
@@ -306,14 +295,6 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		}
 	}
 	return block, nil
-}
-
-func (c *MockChain) ValidateTimestamp(timestamp uint64, slot uint64) error {
-	expectedTimestamp := c.beaconGenesisTimestamp + uint64((time.Duration(slot) * c.timePerSlot).Seconds())
-	if uint64(timestamp) != expectedTimestamp {
-		return fmt.Errorf("wrong timestamp: got %d, expected %d", timestamp, expectedTimestamp)
-	}
-	return nil
 }
 
 func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, error) {

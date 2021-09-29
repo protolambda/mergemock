@@ -91,7 +91,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	c.mockChain = NewMockChain(log, c.BeaconGenesisTime, c.SlotTime, genesis, db)
+	c.mockChain = NewMockChain(log, genesis, db)
 
 	c.log = log
 	c.engine = client
@@ -100,6 +100,18 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 
 	go c.RunNode()
 
+	return nil
+}
+
+func (c *ConsensusCmd) SlotTimestamp(slot uint64) uint64 {
+	return c.BeaconGenesisTime + uint64((time.Duration(slot) * c.SlotTime).Seconds())
+}
+
+func (c *ConsensusCmd) ValidateTimestamp(timestamp uint64, slot uint64) error {
+	expectedTimestamp := c.BeaconGenesisTime + uint64((time.Duration(slot) * c.SlotTime).Seconds())
+	if timestamp != expectedTimestamp {
+		return fmt.Errorf("wrong timestamp: got %d, expected %d", timestamp, expectedTimestamp)
+	}
 	return nil
 }
 
@@ -113,7 +125,7 @@ func (c *ConsensusCmd) RunNode() {
 	//slots.Reset(c.PastGenesis % c.SlotTime) // TODO
 	defer slots.Stop()
 
-	genesisTime := time.Unix(int64(c.mockChain.beaconGenesisTimestamp), 0)
+	genesisTime := time.Unix(int64(c.BeaconGenesisTime), 0)
 
 	for {
 		select {
@@ -154,11 +166,11 @@ func (c *ConsensusCmd) RunNode() {
 					go c.mockProposal(slotLog, parent, slot, coinbase, random32, consensusProposalFail)
 				} else {
 					// build a block, without using the engine, and insert it into the engine
-					slotLog.Info("mocking outside world, creating block without engine")
+					slotLog.Info("mocking outside world block proposal")
 
 					// TODO: different proposers, gas limit (target in london) changes, etc.
 					coinbase := common.Address{1}
-					timestamp := c.mockChain.SlotTimestamp(slot)
+					timestamp := c.SlotTimestamp(slot)
 					gasLimit := c.mockChain.gspec.GasLimit
 					extraData := []byte("proto says hi")
 					uncleBlocks := []*types.Header{} // none in proof of stake
@@ -199,7 +211,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 	if consensusFail {
 		log.Info("mocking a failed proposal on consensus-side, ignoring produced payload of engine")
 	} else {
-		if err := c.mockChain.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
+		if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
 			log.WithError(err).Error("payload has bad timestamp")
 			return
 		}
@@ -230,7 +242,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, 
 	ctx, _ := context.WithTimeout(c.ctx, time.Second*20)
 	params := &PreparePayloadParams{
 		ParentHash:   parent,
-		Timestamp:    Uint64Quantity(c.mockChain.SlotTimestamp(slot)),
+		Timestamp:    Uint64Quantity(c.SlotTimestamp(slot)),
 		Random:       random,
 		FeeRecipient: feeRecipient,
 	}

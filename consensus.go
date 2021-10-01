@@ -185,7 +185,7 @@ func (c *ConsensusCmd) RunNode() {
 					slotLog.WithField("blockhash", block.Hash()).Info("built external block")
 
 					// don't wait for the engine in the main loop
-					go c.mockExecution(slotLog, block)
+					go c.mockExecution(slotLog, block, nil)
 				}
 
 				// TODO: signal head changes
@@ -204,6 +204,20 @@ func (c *ConsensusCmd) RunNode() {
 func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) {
 	payload, err := c.mockPrep(log, parent, slot, random32, coinbase)
 	if err != nil {
+		if rpcErr, ok := err.(rpc.Error); ok {
+			code := ErrorCode(rpcErr.ErrorCode())
+			if code == UnknownBlock {
+				parentBlock := c.mockChain.blockchain.GetBlockByHash(parent)
+				if parentBlock == nil {
+					log.WithField("parent", parent).Error("both execution engine and consensus node are missing parent block")
+					return
+				} else {
+					log.WithField("parent", parent).Info("executing parent to catch up")
+					go c.mockExecution(log, parentBlock, nil)
+					return
+				}
+			}
+		}
 		log.WithError(err).Error("failed to prepare and get payload, failed proposal")
 		return
 	}
@@ -254,7 +268,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, 
 	return GetPayload(ctx, c.engine, log, id)
 }
 
-func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {
+func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block, history []common.Hash) {
 	ctx, _ := context.WithTimeout(c.ctx, time.Second*20)
 
 	// derive the random 32 bytes from the block hash for mocking ease
@@ -265,7 +279,23 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 		return
 	}
 
-	ExecutePayload(ctx, c.engine, log, payload)
+	_, err = ExecutePayload(ctx, c.engine, log, payload)
+	if rpcErr, ok := err.(rpc.Error); ok {
+		code := ErrorCode(rpcErr.ErrorCode())
+		if code == UnknownBlock {
+			parent := payload.ParentHash
+			parentBlock := c.mockChain.blockchain.GetBlockByHash(parent)
+			if parentBlock == nil {
+				log.WithField("parent", parent).Error("both execution engine and consensus node are missing parent block")
+				return
+			} else {
+				log.WithField("parent", parent).Info("executing parent to catch up")
+				nextHistory := append(history, parent)
+				go c.mockExecution(log, parentBlock, nextHistory)
+				return
+			}
+		}
+	}
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {

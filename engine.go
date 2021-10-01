@@ -215,11 +215,15 @@ func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadPar
 	})
 	extraData := []byte{}
 
-	bl, err := e.mockChain.AddNewBlock(p.ParentHash, p.FeeRecipient, uint64(p.Timestamp),
+	parentHeader := e.mockChain.blockchain.GetHeaderByHash(p.ParentHash)
+	if parentHeader == nil {
+		return id, &rpcError{err: fmt.Errorf("unknown parent hash %s", p.ParentHash), id: UnknownBlock}
+	}
+
+	bl, err := e.mockChain.AddNewBlock(parentHeader, p.FeeRecipient, uint64(p.Timestamp),
 		gasLimit, txsCreator, extraData, nil, false)
 
 	if err != nil {
-		// TODO: proper error codes
 		plog.WithError(err).Error("failed to create block, cannot build new payload")
 		return 0, err
 	}
@@ -227,7 +231,6 @@ func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadPar
 	payload, err := BlockToPayload(bl, p.Random)
 	if err != nil {
 		plog.WithError(err).Error("failed to convert block to payload")
-		// TODO: proper error codes
 		return 0, err
 	}
 
@@ -255,8 +258,7 @@ func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPa
 	parent := e.mockChain.blockchain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		log.WithField("parent_hash", payload.ParentHash.String()).Warn("cannot execute payload, parent is unknown")
-		// TODO
-		return &ExecutePayloadResult{Status: ExecutionSyncing}, nil
+		return nil, &rpcError{err: fmt.Errorf("parent is unknown"), id: UnknownBlock}
 	}
 
 	_, err := e.mockChain.ProcessPayload(payload)

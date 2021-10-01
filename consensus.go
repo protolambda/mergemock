@@ -176,7 +176,12 @@ func (c *ConsensusCmd) RunNode() {
 					uncleBlocks := []*types.Header{} // none in proof of stake
 					creator := TransactionsCreator(dummyTxCreator)
 
-					block, err := c.mockChain.AddNewBlock(parent, coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
+					parentHeader := c.mockChain.blockchain.GetHeaderByHash(parent)
+					if parentHeader == nil {
+						slotLog.WithField("blockhash", parent).Error("failed to find chain head block header")
+						continue
+					}
+					block, err := c.mockChain.AddNewBlock(parentHeader, coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
 					if err != nil {
 						slotLog.WithError(err).Errorf("failed to add block")
 						continue

@@ -224,13 +224,9 @@ func (c *MockChain) Head() common.Hash {
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
-func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64,
+func (c *MockChain) AddNewBlock(parent *types.Header, coinbase common.Address, timestamp uint64,
 	gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
 
-	parent := c.blockchain.GetHeaderByHash(parentHash)
-	if parent == nil {
-		return nil, fmt.Errorf("unknown parent %s", parentHash)
-	}
 	config := c.gspec.Config
 	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
 	if err != nil {

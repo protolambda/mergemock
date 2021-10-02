@@ -246,12 +246,12 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, 
 		Random:       random,
 		FeeRecipient: feeRecipient,
 	}
-	id, err := PreparePayload(ctx, c.engine, log, params)
+	res, err := PreparePayload(ctx, c.engine, log, params)
 	if err != nil {
 		return nil, err
 	}
 
-	return GetPayload(ctx, c.engine, log, id)
+	return GetPayload(ctx, c.engine, log, res.PayloadID)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {

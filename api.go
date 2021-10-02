@@ -142,6 +142,10 @@ type PreparePayloadParams struct {
 	FeeRecipient common.Address `json:"feeRecipient"`
 }
 
+type PreparePayloadResult struct {
+	PayloadID PayloadID `json:"payloadId"`
+}
+
 type ExecutionPayloadStatus string
 
 const (
@@ -180,11 +184,12 @@ type ForkchoiceUpdatedParams struct {
 }
 
 func PreparePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	params *PreparePayloadParams) (payloadId PayloadID, err error) {
+	params *PreparePayloadParams) (result *PreparePayloadResult, err error) {
 
 	e := log.WithField("params", params)
 	e.Debug("preparing payload")
-	err = cl.CallContext(ctx, &payloadId, "engine_preparePayload", params)
+	var out PreparePayloadResult
+	err = cl.CallContext(ctx, &out, "engine_preparePayload", params)
 	if err != nil {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(rpc.Error); ok {
@@ -199,10 +204,10 @@ func PreparePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 		} else {
 			e.Error("failed to get payload")
 		}
-		return 0, err
+		return nil, err
 	}
-	e.WithField("payload_id", payloadId).Debug("prepared payload")
-	return
+	e.WithField("payload_id", out.PayloadID).Debug("prepared payload")
+	return &out, nil
 }
 
 func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,

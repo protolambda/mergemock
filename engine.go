@@ -200,7 +200,7 @@ type EngineBackend struct {
 	recentPayloads *lru.Cache
 }
 
-func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadParams) (PayloadID, error) {
+func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadParams) (*PreparePayloadResult, error) {
 	id := PayloadID(atomic.AddUint64((*uint64)(&e.payloadIdCounter), 1))
 	plog := e.log.WithField("payload_id", id)
 	plog.WithField("params", p).Info("preparing new payload")
@@ -221,20 +221,20 @@ func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadPar
 	if err != nil {
 		// TODO: proper error codes
 		plog.WithError(err).Error("failed to create block, cannot build new payload")
-		return 0, err
+		return nil, err
 	}
 
 	payload, err := BlockToPayload(bl, p.Random)
 	if err != nil {
 		plog.WithError(err).Error("failed to convert block to payload")
 		// TODO: proper error codes
-		return 0, err
+		return nil, err
 	}
 
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 
-	return id, nil
+	return &PreparePayloadResult{PayloadID: id}, nil
 }
 
 func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {

@@ -4,6 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math/big"
+	"os"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
@@ -20,8 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
-	"math/big"
-	"os"
 )
 
 func LoadGenesisConfig(path string) (*core.Genesis, error) {
@@ -194,7 +195,7 @@ func NewMockChain(log logrus.Ext1FieldLogger,
 
 	// Geth logs some things globally unfortunately.
 	// If we were using multiple mocks, we wouldn't know which one is logging what :(
-	gethlog.Root().SetHandler(&GethLogger{FieldLogger: log, Adjust: 1})
+	gethlog.Root().SetHandler(&GethLogger{FieldLogger: log, Adjust: 0})
 
 	// todo: is overwriting harmful? Maybe do a safety check in case we restart from an existing db?
 	genesisBlock, err := genesis.Commit(db)
@@ -244,7 +245,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		TxHash:      common.Hash{}, // part of assembling
 		ReceiptHash: common.Hash{}, // part of assembling
 		Bloom:       types.Bloom{}, // part of assembling
-		Difficulty:  big.NewInt(1), // technically depends on time in PoW, but not here :')
+		Difficulty:  common.Big0,   // technically depends on time in PoW, but not here :')
 		Number:      new(big.Int).Add(parent.Number, common.Big1),
 		GasLimit:    gasLimit,
 		GasUsed:     0, // updated with ApplyTransaction
@@ -316,7 +317,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 		TxHash:      common.Hash{}, // part of assembling
 		ReceiptHash: common.Hash{}, // receipt root verified after processing
 		Bloom:       types.Bloom{}, // bloom verified after processing
-		Difficulty:  big.NewInt(1),
+		Difficulty:  common.Big0,
 		Number:      new(big.Int).Add(parent.Number, common.Big1),
 		GasLimit:    uint64(payload.GasLimit),
 		GasUsed:     0,                         // updated by processing

@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/state"
 	"math"
 	"math/big"
 	"time"
+
+	"github.com/ethereum/go-ethereum/core/state"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -150,6 +151,7 @@ func (c *ConsensusCmd) RunNode() {
 				// gap slot
 				slotLog.Info("mocking gap slot, no payload execution here")
 			} else {
+				var block *types.Block
 				if c.RNG.Float64() < c.Freq.ProposalFreq {
 					// try get a block from the engine, we're a proposer!
 					slotLog.Info("proposing block with engine")
@@ -163,7 +165,7 @@ func (c *ConsensusCmd) RunNode() {
 
 					coinbase := common.Address{0x13, 0x37}
 
-					go c.mockProposal(slotLog, parent, slot, coinbase, random32, consensusProposalFail)
+					block = c.mockProposal(slotLog, parent, slot, coinbase, random32, consensusProposalFail)
 				} else {
 					// build a block, without using the engine, and insert it into the engine
 					slotLog.Info("mocking outside world block proposal")
@@ -188,7 +190,9 @@ func (c *ConsensusCmd) RunNode() {
 					go c.mockExecution(slotLog, block)
 				}
 
-				// TODO: signal head changes
+				if block != nil {
+					ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
+				}
 
 				// TODO: signal finality changes
 			}
@@ -201,26 +205,27 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) {
+func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) *types.Block {
 	payload, err := c.mockPrep(log, parent, slot, random32, coinbase)
 	if err != nil {
 		log.WithError(err).Error("failed to prepare and get payload, failed proposal")
-		return
+		return nil
 	}
 
 	if consensusFail {
 		log.Info("mocking a failed proposal on consensus-side, ignoring produced payload of engine")
+		return nil
 	} else {
 		if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
 			log.WithError(err).Error("payload has bad timestamp")
-			return
+			return nil
 		}
-		bl, err := c.mockChain.ProcessPayload(payload)
+		block, err := c.mockChain.ProcessPayload(payload)
 		if err != nil {
 			log.WithError(err).Error("failed to process execution payload from engine")
-			return
+			return nil
 		} else {
-			log.WithField("blockhash", bl.Hash()).Info("processed payload in consensus mock world")
+			log.WithField("blockhash", block.Hash()).Info("processed payload in consensus mock world")
 		}
 
 		// send it back to execution layer for execution
@@ -229,13 +234,15 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 		if err != nil {
 			log.WithError(err).Error("failed to execute payload")
 		} else if execStatus == ExecutionValid {
-			log.WithField("blockhash", bl.Hash()).Info("processed payload in engine")
+			log.WithField("blockhash", block.Hash()).Info("processed payload in engine")
 		} else if execStatus == ExecutionInvalid {
-			log.WithField("blockhash", bl.Hash()).Error("engine just produced payload and failed to execute it after!")
+			log.WithField("blockhash", block.Hash()).Error("engine just produced payload and failed to execute it after!")
 		} else {
 			log.WithField("status", execStatus).Error("unrecognized execution status")
 		}
+		return block
 	}
+
 }
 
 func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayload, error) {
@@ -266,6 +273,7 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 	}
 
 	ExecutePayload(ctx, c.engine, log, payload)
+	ConsensusValidated(ctx, c.engine, log, Bytes32(payload.BlockHash), ConsensusValid)
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {

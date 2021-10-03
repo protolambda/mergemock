@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"reflect"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/holiman/uint256"
@@ -46,7 +47,7 @@ func (b *Bytes32) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
 }
 
-func (b Bytes32) String() string {
+func (b *Bytes32) String() string {
 	return hexutil.Encode(b[:])
 }
 
@@ -60,7 +61,7 @@ func (b *Bytes256) UnmarshalText(text []byte) error {
 	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
 }
 
-func (b *Bytes256) MarshalText() ([]byte, error) {
+func (b Bytes256) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
 }
 
@@ -256,7 +257,7 @@ func ConsensusValidated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Fiel
 	e := log.WithField("block_hash", blockHash).WithField("status", status)
 	e.Debug("sharing consensus-validated signal")
 
-	err := cl.CallContext(ctx, nil, "engine_consensusValidated", params)
+	err := cl.CallContext(ctx, nil, "engine_consensusValidated", &params)
 	if err == nil || err == rpc.ErrNoResult {
 		e.Debug("shared consensus-validated signal")
 		return nil
@@ -282,7 +283,7 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	e := log.WithField("head", head).WithField("finalized", finalized)
 	e.Debug("sharing forkchoice-updated signal")
 
-	err := cl.CallContext(ctx, nil, "engine_forkchoiceUpdated", params)
+	err := cl.CallContext(ctx, nil, "engine_forkchoiceUpdated", &params)
 	if err == nil || err == rpc.ErrNoResult {
 		e.Debug("shared forkchoice-updated signal")
 		return nil

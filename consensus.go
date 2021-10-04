@@ -39,6 +39,8 @@ type ConsensusCmd struct {
 	// embed logger options
 	LogCmd `ask:".log" help:"Change logger configuration"`
 
+	TraceLogConfig `ask:".trace" help:"Tracing options"`
+
 	close  chan struct{}
 	log    logrus.Ext1FieldLogger
 	ctx    context.Context
@@ -92,7 +94,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	c.mockChain = NewMockChain(log, genesis, db)
+	c.mockChain = NewMockChain(log, genesis, db, &c.TraceLogConfig)
 
 	c.log = log
 	c.engine = client

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -179,16 +180,27 @@ func (cr *fakeChainReader) GetHeaderByHash(hash common.Hash) *types.Header      
 func (cr *fakeChainReader) GetHeader(hash common.Hash, number uint64) *types.Header { return nil }
 func (cr *fakeChainReader) GetBlock(hash common.Hash, number uint64) *types.Block   { return nil }
 
+type TraceLogConfig struct {
+	EnableTrace      bool `ask:"--enable" help:"enable tracing"`
+	EnableMemory     bool `ask:"--enable-memory" help:"enable memory capture"`
+	DisableStack     bool `ask:"--disable-stack" help:"disable stack capture"`
+	DisableStorage   bool `ask:"--disable-storage" help:"disable storage capture"`
+	EnableReturnData bool `ask:"--enable-return-data" help:"enable return data capture"`
+	Debug            bool `ask:"--debug" help:"print output during capture end"`
+	Limit            int  `ask:"--limit" help:"maximum length of output, but zero means unlimited"`
+}
+
 type MockChain struct {
 	log           logrus.Ext1FieldLogger
 	gspec         *core.Genesis
 	database      ethdb.Database
 	execConsensus consensus.Engine
 	blockchain    *core.BlockChain
+	traceOpts     *TraceLogConfig
 }
 
 func NewMockChain(log logrus.Ext1FieldLogger,
-	genesis *core.Genesis, db ethdb.Database) *MockChain {
+	genesis *core.Genesis, db ethdb.Database, 	traceOpts     *TraceLogConfig) *MockChain {
 
 	// TODO: real ethash, with very low difficulty
 	fakeEthash := ethash.NewFaker()
@@ -216,6 +228,7 @@ func NewMockChain(log logrus.Ext1FieldLogger,
 		database:      db,
 		execConsensus: execConsensus,
 		blockchain:    blockchain,
+		traceOpts:     traceOpts,
 	}
 }
 
@@ -265,16 +278,34 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	}
 	receipts := make([]*types.Receipt, 0)
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
-	txs := txsCreator(config, c.blockchain, statedb, header, vm.Config{})
+	stl := vm.NewStructLogger(&vm.LogConfig{
+		EnableMemory:     c.traceOpts.EnableMemory,
+		DisableStack:     c.traceOpts.DisableStack,
+		DisableStorage:   c.traceOpts.DisableStorage,
+		EnableReturnData: c.traceOpts.EnableReturnData,
+		Debug:            c.traceOpts.Debug,
+		Limit:            c.traceOpts.Limit,
+		Overrides:        nil,
+	})
+	vmconf := vm.Config{}
+	if c.traceOpts.EnableTrace {
+		vmconf.Tracer = stl
+	}
+	txs := txsCreator(config, c.blockchain, statedb, header, vmconf)
 	for i, tx := range txs {
-		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vm.Config{})
+		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vmconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
+		rec, _ := json.MarshalIndent(receipt, "  ", "  ")
+		c.log.WithField("receipt_index", i).Info("receipt:\n" + string(rec))
 		receipts = append(receipts, receipt)
 	}
-
-	// TODO: not running sealing
+	if c.traceOpts.EnableTrace {
+		var buf bytes.Buffer
+		vm.WriteTrace(&buf, stl.StructLogs())
+		c.log.Info("trace:\n" + string(buf.Bytes()))
+	}
 
 	// Finalize and seal the block
 	block, err := c.execConsensus.FinalizeAndAssemble(&fakeChainReader{config}, header, statedb, txs, uncles, receipts)
@@ -340,6 +371,19 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	}
 	receipts := make([]*types.Receipt, 0)
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
+	stl := vm.NewStructLogger(&vm.LogConfig{
+		EnableMemory:     c.traceOpts.EnableMemory,
+		DisableStack:     c.traceOpts.DisableStack,
+		DisableStorage:   c.traceOpts.DisableStorage,
+		EnableReturnData: c.traceOpts.EnableReturnData,
+		Debug:            c.traceOpts.Debug,
+		Limit:            c.traceOpts.Limit,
+		Overrides:        nil,
+	})
+	vmconf := vm.Config{}
+	if c.traceOpts.EnableTrace {
+		vmconf.Tracer = stl
+	}
 	txs := make([]*types.Transaction, 0, len(payload.Transactions))
 	for i, otx := range payload.Transactions {
 		var tx types.Transaction
@@ -347,12 +391,18 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 			return nil, fmt.Errorf("failed to decode tx %d: %v", i, err)
 		}
 		txs = append(txs, &tx)
-		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, &tx, &header.GasUsed, vm.Config{})
+		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, &tx, &header.GasUsed, vmconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
-		c.log.WithField(fmt.Sprintf("receipt_%d", i), receipt).Info("receipt")
+		rec, _ := json.MarshalIndent(receipt, "  ", "  ")
+		c.log.WithField("receipt_index", i).Info("receipt:\n" + string(rec))
 		receipts = append(receipts, receipt)
+	}
+	if c.traceOpts.EnableTrace {
+		var buf bytes.Buffer
+		vm.WriteTrace(&buf, stl.StructLogs())
+		c.log.Info("trace:\n" + string(buf.Bytes()))
 	}
 
 	// verify state root is correct, and build the block
@@ -369,7 +419,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 		"stateRoot":        block.Root(),
 		"transactionsRoot": h.TxHash,
 		"receiptsRoot":     block.ReceiptHash(),
-		"logsBloom":        block.Bloom(),
+		"logsBloom":        Bytes256(block.Bloom()),
 		"difficulty":       block.Difficulty(),
 		"number":           block.Number(),
 		"gasLimit":         block.GasLimit(),

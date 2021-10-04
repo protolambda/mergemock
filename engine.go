@@ -33,6 +33,8 @@ type EngineCmd struct {
 	// embed logger options
 	LogCmd `ask:".log" help:"Change logger configuration"`
 
+	TraceLogConfig `ask:".trace" help:"Tracing options"`
+
 	ListenAddr    string `ask:"--listen-addr" help:"Address to bind RPC HTTP server to"`
 	WebsocketAddr string `ask:"--ws-addr" help:"Address to serve /ws endpoint on for websocket JSON-RPC"`
 
@@ -97,7 +99,7 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	mockChain := NewMockChain(logr, genesis, db)
+	mockChain := NewMockChain(logr, genesis, db, &c.TraceLogConfig)
 
 	recentPayloadsCache, err := lru.New(10)
 	backend := &EngineBackend{log: logr, mockChain: mockChain, recentPayloads: recentPayloadsCache}

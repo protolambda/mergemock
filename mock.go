@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -354,15 +355,28 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 		receipts = append(receipts, receipt)
 	}
 
-	c.log.WithField("header", header).Info("header from process payload (before state root update)")
-
 	// verify state root is correct, and build the block
 	stateRoot := statedb.IntermediateRoot(config.IsEIP158(header.Number))
-	if stateRoot != common.Hash(payload.StateRoot) {
-		return nil, fmt.Errorf("state root difference: %s <> %s", stateRoot, payload.StateRoot)
-	}
 	header.Root = stateRoot
 	block := types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil))
+
+	h := block.Header()
+	c.log.WithFields(map[string]interface{}{
+		"blockHash":        block.Hash(),
+		"parentHash":       block.ParentHash(),
+		"sha3Uncles":       block.UncleHash(),
+		"miner":            block.Coinbase(),
+		"stateRoot":        block.Root(),
+		"transactionsRoot": h.TxHash,
+		"receiptsRoot":     block.ReceiptHash(),
+		"logsBloom":        block.Bloom(),
+		"difficulty":       block.Difficulty(),
+		"number":           block.Number(),
+		"gasLimit":         block.GasLimit(),
+		"gasUsed":          block.GasUsed(),
+		"timestamp":        block.Time(),
+		"extraData":        hex.EncodeToString(block.Extra()),
+	}).Info("computed block from payload")
 
 	if used := block.GasUsed(); used != uint64(payload.GasUsed) {
 		return nil, fmt.Errorf("gas usage difference: %d <> %d", payload.GasUsed, header.GasUsed)
@@ -374,6 +388,10 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 
 	if bloom := block.Bloom(); Bytes256(bloom) != payload.LogsBloom {
 		return nil, fmt.Errorf("logs bloom difference: %s <> %s", bloom, payload.LogsBloom)
+	}
+
+	if block.Root() != common.Hash(payload.StateRoot) {
+		return nil, fmt.Errorf("state root difference: %s <> %s", stateRoot, payload.StateRoot)
 	}
 
 	// Write state changes to db

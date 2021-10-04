@@ -43,11 +43,11 @@ func (b *Bytes32) UnmarshalText(text []byte) error {
 	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
 }
 
-func (b *Bytes32) MarshalText() ([]byte, error) {
+func (b Bytes32) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
 }
 
-func (b *Bytes32) String() string {
+func (b Bytes32) String() string {
 	return hexutil.Encode(b[:])
 }
 
@@ -259,7 +259,6 @@ func ConsensusValidated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Fiel
 
 	err := cl.CallContext(ctx, nil, "engine_consensusValidated", &params)
 	if err == nil || err == rpc.ErrNoResult {
-		e.Debug("shared consensus-validated signal")
 		return nil
 	} else {
 		e = e.WithError(err)

@@ -149,7 +149,7 @@ func (e *ExecutionConsensusMock) SealHash(header *types.Header) (hash common.Has
 }
 
 func (e *ExecutionConsensusMock) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return big.NewInt(1)
+	return nil
 }
 
 func (e *ExecutionConsensusMock) APIs(chain consensus.ChainHeaderReader) []rpc.API {

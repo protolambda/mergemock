@@ -350,8 +350,11 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
+		c.log.WithField(fmt.Sprintf("receipt_%d", i), receipt).Info("receipt")
 		receipts = append(receipts, receipt)
 	}
+
+	c.log.WithField("header", header).Info("header from process payload (before state root update)")
 
 	// verify state root is correct, and build the block
 	stateRoot := statedb.IntermediateRoot(config.IsEIP158(header.Number))

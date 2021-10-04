@@ -47,7 +47,7 @@ func (b *Bytes32) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
 }
 
-func (b *Bytes32) String() string {
+func (b Bytes32) String() string {
 	return hexutil.Encode(b[:])
 }
 

@@ -40,6 +40,11 @@ var pretty = spew.ConfigState{
 	SortKeys:                true,
 }
 
+type Pong struct{}
+
+func (p Pong) Name() string { return "pong" }
+func (p Pong) Kind() int    { return 0x03 }
+
 // Dial attempts to dial the given node and perform a handshake,
 // returning the created Conn if successful.
 func Dial(e *enode.Node) (*Conn, error) {
@@ -66,7 +71,7 @@ func Dial(e *enode.Node) (*Conn, error) {
 
 // peer performs both the protocol handshake and the status message
 // exchange with the node in order to peer with it.
-func (c *Conn) Peer(chain *core.BlockChain, status *Status) error {
+func (c *Conn) Peer(chain *core.BlockChain, status *eth.StatusPacket) error {
 	if err := c.handshake(); err != nil {
 		return fmt.Errorf("handshake failed: %v", err)
 	}
@@ -84,6 +89,7 @@ func (c *Conn) handshake() error {
 	pub0 := crypto.FromECDSAPub(&c.ourKey.PublicKey)[1:]
 	ourHandshake := &Hello{
 		Version: 5,
+		Name2:   "mergemock",
 		Caps:    c.caps,
 		ID:      pub0,
 	}
@@ -91,8 +97,16 @@ func (c *Conn) handshake() error {
 		return fmt.Errorf("write to connection failed: %v", err)
 	}
 	// read hello from client
-	switch msg := c.Read().(type) {
-	case *Hello:
+	code, raw, _, err := c.Conn.Read()
+	if err != nil {
+		return fmt.Errorf("fail to read msg from peer: %v", err)
+	}
+	switch code {
+	case 0x00:
+		msg := new(Hello)
+		if err := rlp.DecodeBytes(raw, msg); err != nil {
+			return fmt.Errorf("could not rlp decode message: %v", err)
+		}
 		// set snappy if version is at least 5
 		if msg.Version >= 5 {
 			c.SetSnappy(true)
@@ -103,7 +117,7 @@ func (c *Conn) handshake() error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("bad handshake: %#v", msg)
+		return fmt.Errorf("bad handshake: %#v", raw)
 	}
 }
 
@@ -123,16 +137,26 @@ func (c *Conn) negotiateEthProtocol(caps []p2p.Cap) {
 }
 
 // statusExchange performs a `Status` message exchange with the given node.
-func (c *Conn) statusExchange(chain *core.BlockChain, status *Status) (Message, error) {
+func (c *Conn) statusExchange(chain *core.BlockChain, status *eth.StatusPacket) (eth.Packet, error) {
 	// defer c.SetDeadline(time.Time{})
 	// c.SetDeadline(time.Now().Add(20 * time.Second))
 
 	// read status message from client
-	var message Message
+	var message eth.Packet
 loop:
 	for {
-		switch msg := c.Read().(type) {
-		case *Status:
+		code, raw, _, err := c.Conn.Read()
+		if err != nil {
+			return nil, fmt.Errorf("fail to read msg from peer: %v", err)
+		}
+
+		switch code {
+		case 16:
+			msg := new(eth.StatusPacket)
+			if err := rlp.DecodeBytes(raw, msg); err != nil {
+				return nil, fmt.Errorf("could not rlp decode message: %v", err)
+			}
+
 			if have, want := msg.Head, chain.CurrentHeader().Hash(); have != want {
 				return nil, fmt.Errorf("wrong head block in status, want:  %#x (block %d) have %#x",
 					want, chain.CurrentHeader().Number.Uint64(), have)
@@ -150,13 +174,18 @@ loop:
 			}
 			message = msg
 			break loop
-		case *Disconnect:
-			return nil, fmt.Errorf("disconnect received: %v", msg.Reason)
-		case *Ping:
-			c.Write(&Pong{}) // TODO (renaynay): in the future, this should be an error
+		case 0x01:
+			msg := new(p2p.DiscReason)
+			if err := rlp.DecodeBytes(raw, msg); err != nil {
+				return nil, fmt.Errorf("could not rlp decode message: %v", err)
+			}
+			return nil, fmt.Errorf("disconnect received: %v", msg)
+		case 0x02:
+			_, err = c.Conn.Write(3, nil)
+			return nil, err
 			// (PINGs should not be a response upon fresh connection)
 		default:
-			return nil, fmt.Errorf("bad status message: %s", pretty.Sdump(msg))
+			return nil, fmt.Errorf("bad status message: code: %d, raw: %s", code, pretty.Sdump(raw))
 		}
 	}
 	// make sure eth protocol version is set for negotiation
@@ -165,7 +194,7 @@ loop:
 	}
 	if status == nil {
 		// default status message
-		status = &Status{
+		status = &eth.StatusPacket{
 			ProtocolVersion: uint32(c.negotiatedProtoVersion),
 			NetworkID:       chain.Config().ChainID.Uint64(),
 			TD:              chain.GetTdByHash(chain.CurrentHeader().Hash()),
@@ -174,14 +203,10 @@ loop:
 			ForkID:          forkid.NewID(chain.Config(), chain.Genesis().Hash(), chain.CurrentHeader().Number.Uint64()),
 		}
 	}
-	if err := c.Write(status); err != nil {
+	if err := c.Write66(status, 16); err != nil {
 		return nil, fmt.Errorf("write to connection failed: %v", err)
 	}
 	return message, nil
-}
-
-type Message interface {
-	Code() int
 }
 
 type Error struct {
@@ -200,7 +225,7 @@ func errorf(format string, args ...interface{}) *Error {
 // Hello is the RLP structure of the protocol handshake.
 type Hello struct {
 	Version    uint64
-	Name       string
+	Name2      string
 	Caps       []p2p.Cap
 	ListenPort uint64
 	ID         []byte // secp256k1 public key
@@ -209,73 +234,8 @@ type Hello struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
-func (h Hello) Code() int { return 0x00 }
-
-// Disconnect is the RLP structure for a disconnect message.
-type Disconnect struct {
-	Reason p2p.DiscReason
-}
-
-func (d Disconnect) Code() int { return 0x01 }
-
-type Ping struct{}
-
-func (p Ping) Code() int { return 0x02 }
-
-type Pong struct{}
-
-func (p Pong) Code() int { return 0x03 }
-
-// Status is the network packet for the status message for eth/64 and later.
-type Status eth.StatusPacket
-
-func (s Status) Code() int { return 16 }
-
-// NewBlockHashes is the network packet for the block announcements.
-type NewBlockHashes eth.NewBlockHashesPacket
-
-func (nbh NewBlockHashes) Code() int { return 17 }
-
-type Transactions eth.TransactionsPacket
-
-func (t Transactions) Code() int { return 18 }
-
-// GetBlockHeaders represents a block header query.
-type GetBlockHeaders eth.GetBlockHeadersPacket
-
-func (g GetBlockHeaders) Code() int { return 19 }
-
-type BlockHeaders eth.BlockHeadersPacket
-
-func (bh BlockHeaders) Code() int { return 20 }
-
-// GetBlockBodies represents a GetBlockBodies request
-type GetBlockBodies eth.GetBlockBodiesPacket
-
-func (gbb GetBlockBodies) Code() int { return 21 }
-
-// BlockBodies is the network packet for block content distribution.
-type BlockBodies eth.BlockBodiesPacket
-
-func (bb BlockBodies) Code() int { return 22 }
-
-// NewBlock is the network packet for the block propagation message.
-type NewBlock eth.NewBlockPacket
-
-func (nb NewBlock) Code() int { return 23 }
-
-// NewPooledTransactionHashes is the network packet for the tx hash propagation message.
-type NewPooledTransactionHashes eth.NewPooledTransactionHashesPacket
-
-func (nb NewPooledTransactionHashes) Code() int { return 24 }
-
-type GetPooledTransactions eth.GetPooledTransactionsPacket
-
-func (gpt GetPooledTransactions) Code() int { return 25 }
-
-type PooledTransactions eth.PooledTransactionsPacket
-
-func (pt PooledTransactions) Code() int { return 26 }
+func (h Hello) Name() string { return "hello" }
+func (h Hello) Kind() byte   { return 0x00 }
 
 // Conn represents an individual connection with a peer
 type Conn struct {
@@ -286,133 +246,8 @@ type Conn struct {
 	caps                   []p2p.Cap
 }
 
-// Read reads an eth packet from the connection.
-func (c *Conn) Read() Message {
-	code, rawData, _, err := c.Conn.Read()
-	if err != nil {
-		return errorf("could not read from connection: %v", err)
-	}
-
-	var msg Message
-	switch int(code) {
-	case (Hello{}).Code():
-		msg = new(Hello)
-	case (Ping{}).Code():
-		msg = new(Ping)
-	case (Pong{}).Code():
-		msg = new(Pong)
-	case (Disconnect{}).Code():
-		msg = new(Disconnect)
-	case (Status{}).Code():
-		msg = new(Status)
-	case (GetBlockHeaders{}).Code():
-		msg = new(GetBlockHeaders)
-	case (BlockHeaders{}).Code():
-		msg = new(BlockHeaders)
-	case (GetBlockBodies{}).Code():
-		msg = new(GetBlockBodies)
-	case (BlockBodies{}).Code():
-		msg = new(BlockBodies)
-	case (NewBlock{}).Code():
-		msg = new(NewBlock)
-	case (NewBlockHashes{}).Code():
-		msg = new(NewBlockHashes)
-	case (Transactions{}).Code():
-		msg = new(Transactions)
-	case (NewPooledTransactionHashes{}).Code():
-		msg = new(NewPooledTransactionHashes)
-	case (GetPooledTransactions{}.Code()):
-		msg = new(GetPooledTransactions)
-	case (PooledTransactions{}.Code()):
-		msg = new(PooledTransactions)
-	default:
-		return errorf("invalid message code: %d", code)
-	}
-	// if message is devp2p, decode here
-	if err := rlp.DecodeBytes(rawData, msg); err != nil {
-		return errorf("could not rlp decode message: %v", err)
-	}
-	return msg
-}
-
-// Read66 reads an eth66 packet from the connection.
-func (c *Conn) Read66() (uint64, Message) {
-	code, rawData, _, err := c.Conn.Read()
-	if err != nil {
-		return 0, errorf("could not read from connection: %v", err)
-	}
-
-	var msg Message
-	switch int(code) {
-	case (Hello{}).Code():
-		msg = new(Hello)
-	case (Ping{}).Code():
-		msg = new(Ping)
-	case (Pong{}).Code():
-		msg = new(Pong)
-	case (Disconnect{}).Code():
-		msg = new(Disconnect)
-	case (Status{}).Code():
-		msg = new(Status)
-	case (GetBlockHeaders{}).Code():
-		ethMsg := new(eth.GetBlockHeadersPacket66)
-		if err := rlp.DecodeBytes(rawData, ethMsg); err != nil {
-			return 0, errorf("could not rlp decode message: %v", err)
-		}
-		return ethMsg.RequestId, GetBlockHeaders(*ethMsg.GetBlockHeadersPacket)
-	case (BlockHeaders{}).Code():
-		ethMsg := new(eth.BlockHeadersPacket66)
-		if err := rlp.DecodeBytes(rawData, ethMsg); err != nil {
-			return 0, errorf("could not rlp decode message: %v", err)
-		}
-		return ethMsg.RequestId, BlockHeaders(ethMsg.BlockHeadersPacket)
-	case (GetBlockBodies{}).Code():
-		ethMsg := new(eth.GetBlockBodiesPacket66)
-		if err := rlp.DecodeBytes(rawData, ethMsg); err != nil {
-			return 0, errorf("could not rlp decode message: %v", err)
-		}
-		return ethMsg.RequestId, GetBlockBodies(ethMsg.GetBlockBodiesPacket)
-	case (BlockBodies{}).Code():
-		ethMsg := new(eth.BlockBodiesPacket66)
-		if err := rlp.DecodeBytes(rawData, ethMsg); err != nil {
-			return 0, errorf("could not rlp decode message: %v", err)
-		}
-		return ethMsg.RequestId, BlockBodies(ethMsg.BlockBodiesPacket)
-	case (NewBlock{}).Code():
-		msg = new(NewBlock)
-	case (NewBlockHashes{}).Code():
-		msg = new(NewBlockHashes)
-	case (Transactions{}).Code():
-		msg = new(Transactions)
-	case (NewPooledTransactionHashes{}).Code():
-		msg = new(NewPooledTransactionHashes)
-	case (GetPooledTransactions{}.Code()):
-		ethMsg := new(eth.GetPooledTransactionsPacket66)
-		if err := rlp.DecodeBytes(rawData, ethMsg); err != nil {
-			return 0, errorf("could not rlp decode message: %v", err)
-		}
-		return ethMsg.RequestId, GetPooledTransactions(ethMsg.GetPooledTransactionsPacket)
-	case (PooledTransactions{}.Code()):
-		ethMsg := new(eth.PooledTransactionsPacket66)
-		if err := rlp.DecodeBytes(rawData, ethMsg); err != nil {
-			return 0, errorf("could not rlp decode message: %v", err)
-		}
-		return ethMsg.RequestId, PooledTransactions(ethMsg.PooledTransactionsPacket)
-	default:
-		msg = errorf("invalid message code: %d", code)
-	}
-
-	if msg != nil {
-		if err := rlp.DecodeBytes(rawData, msg); err != nil {
-			return 0, errorf("could not rlp decode message: %v", err)
-		}
-		return 0, msg
-	}
-	return 0, errorf("invalid message: %s", string(rawData))
-}
-
 // Write writes a eth packet to the connection.
-func (c *Conn) Write(msg Message) error {
+func (c *Conn) Write(msg eth.Packet) error {
 	// check if message is eth protocol message
 	var (
 		payload []byte
@@ -422,7 +257,7 @@ func (c *Conn) Write(msg Message) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.Conn.Write(uint64(msg.Code()), payload)
+	_, err = c.Conn.Write(uint64(msg.Kind()), payload)
 	return err
 }
 

@@ -255,11 +255,11 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		ParentHash:  parent.Hash(),
 		UncleHash:   common.Hash{}, // updated by sealing, if necessary
 		Coinbase:    coinbase,
-		Root:        common.Hash{}, // updated by Finalize, called within FinalizeAndAssemble
-		TxHash:      common.Hash{}, // part of assembling
-		ReceiptHash: common.Hash{}, // part of assembling
-		Bloom:       types.Bloom{}, // part of assembling
-		Difficulty:  common.Big1,   // technically depends on time in PoW, but not here :')
+		Root:        common.Hash{},                           // updated by Finalize, called within FinalizeAndAssemble
+		TxHash:      common.Hash{},                           // part of assembling
+		ReceiptHash: common.Hash{},                           // part of assembling
+		Bloom:       types.Bloom{},                           // part of assembling
+		Difficulty:  big.NewInt(100 + parent.Number.Int64()), // technically depends on time in PoW, but not here :')
 		Number:      new(big.Int).Add(parent.Number, common.Big1),
 		GasLimit:    gasLimit,
 		GasUsed:     0, // updated with ApplyTransaction

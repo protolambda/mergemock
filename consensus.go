@@ -101,7 +101,9 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 
 	c.mockChain = NewMockChain(log, genesis, db, &c.TraceLogConfig)
 	peer, err := p2p.Dial(enode.MustParse(c.Enode))
-	peer.Peer(c.mockChain.blockchain, nil)
+	if err := peer.Peer(c.mockChain.blockchain, nil); err != nil {
+		panic(fmt.Sprintf("unable to connect to peer: %v", err))
+	}
 
 	c.log = log
 	c.engine = client
@@ -205,8 +207,11 @@ func (c *ConsensusCmd) RunNode() {
 					slotLog.WithField("blockhash", block.Hash()).Info("built external block")
 
 					// c.mockExecution(slotLog, block)
-					newBlock := eth.NewBlockPacket{block, big.NewInt(100)}
-					c.peer.Write66(&newBlock, eth.NewBlockMsg)
+					newBlock := eth.NewBlockPacket{block, block.Header().Number}
+					err := c.peer.Write66(&newBlock, 23)
+					if err != nil {
+						panic(err)
+					}
 				}
 
 				if block != nil {

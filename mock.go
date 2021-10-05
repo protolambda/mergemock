@@ -298,7 +298,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
 		rec, _ := json.MarshalIndent(receipt, "  ", "  ")
-		c.log.WithField("receipt_index", i).Info("receipt:\n" + string(rec))
+		c.log.WithField("receipt_index", i).Debug("receipt:\n" + string(rec))
 		receipts = append(receipts, receipt)
 	}
 	if c.traceOpts.EnableTrace {
@@ -396,7 +396,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
 		rec, _ := json.MarshalIndent(receipt, "  ", "  ")
-		c.log.WithField("receipt_index", i).Info("receipt:\n" + string(rec))
+		c.log.WithField("receipt_index", i).Debug("receipt:\n" + string(rec))
 		receipts = append(receipts, receipt)
 	}
 	if c.traceOpts.EnableTrace {

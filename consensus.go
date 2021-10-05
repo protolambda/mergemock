@@ -142,6 +142,10 @@ func (c *ConsensusCmd) RunNode() {
 				}
 				continue
 			}
+			if signedSlot == 0 {
+				c.log.WithField("slot", 0).Info("genesis!")
+				continue
+			}
 			slot := uint64(signedSlot)
 
 			// TODO: fake some forking by not always building on the latest payload

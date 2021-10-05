@@ -259,7 +259,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		TxHash:      common.Hash{}, // part of assembling
 		ReceiptHash: common.Hash{}, // part of assembling
 		Bloom:       types.Bloom{}, // part of assembling
-		Difficulty:  common.Big0,   // technically depends on time in PoW, but not here :')
+		Difficulty:  common.Big1,   // technically depends on time in PoW, but not here :')
 		Number:      new(big.Int).Add(parent.Number, common.Big1),
 		GasLimit:    gasLimit,
 		GasUsed:     0, // updated with ApplyTransaction

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"mergemock/p2p"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/eth/protocols/eth"
+	"github.com/ethereum/go-ethereum/p2p/enode"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -32,6 +35,7 @@ type ConsensusCmd struct {
 	EngineAddr  string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
 	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
+	Enode       string `ask:"--node" help:"Enode of execution client"`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -45,6 +49,7 @@ type ConsensusCmd struct {
 	log    logrus.Ext1FieldLogger
 	ctx    context.Context
 	engine *rpc.Client
+	peer   *p2p.Conn
 
 	mockChain *MockChain
 }
@@ -95,9 +100,12 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	}
 
 	c.mockChain = NewMockChain(log, genesis, db, &c.TraceLogConfig)
+	peer, err := p2p.Dial(enode.MustParse(c.Enode))
+	peer.Peer(c.mockChain.blockchain, nil)
 
 	c.log = log
 	c.engine = client
+	c.peer = peer
 	c.ctx = ctx
 	c.close = make(chan struct{})
 
@@ -161,7 +169,8 @@ func (c *ConsensusCmd) RunNode() {
 					block *types.Block
 					err   error
 				)
-				if c.RNG.Float64() < c.Freq.ProposalFreq {
+				// if c.RNG.Float64() < c.Freq.ProposalFreq {
+				if false {
 					// try get a block from the engine, we're a proposer!
 					slotLog.Info("proposing block with engine")
 
@@ -195,7 +204,9 @@ func (c *ConsensusCmd) RunNode() {
 
 					slotLog.WithField("blockhash", block.Hash()).Info("built external block")
 
-					c.mockExecution(slotLog, block)
+					// c.mockExecution(slotLog, block)
+					newBlock := eth.NewBlockPacket{block, big.NewInt(100)}
+					c.peer.Write66(&newBlock, eth.NewBlockMsg)
 				}
 
 				if block != nil {

@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"mergemock/p2p"
+	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/state"
@@ -36,6 +37,7 @@ type ConsensusCmd struct {
 	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
 	Enode       string `ask:"--node" help:"Enode of execution client"`
+	Tdd         uint64 `ask:"--ttd" help:"The terminal total difficulty for the merge"`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -101,8 +103,13 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 
 	c.mockChain = NewMockChain(log, genesis, db, &c.TraceLogConfig)
 	peer, err := p2p.Dial(enode.MustParse(c.Enode))
+	if err != nil {
+		log.WithField("err", err).Error("Unable to connect to client")
+		os.Exit(1)
+	}
 	if err := peer.Peer(c.mockChain.blockchain, nil); err != nil {
-		panic(fmt.Sprintf("unable to connect to peer: %v", err))
+		log.WithField("err", err).Error("Unable to peer with client")
+		os.Exit(1)
 	}
 
 	c.log = log
@@ -139,6 +146,33 @@ func (c *ConsensusCmd) RunNode() {
 	defer slots.Stop()
 
 	genesisTime := time.Unix(int64(c.BeaconGenesisTime), 0)
+
+	// Send pre-transition blocks
+	for {
+		// build a block, without using the engine, and insert it into the engine
+		c.log.Info("mining pre-transition block")
+
+		parent := c.mockChain.Head()
+		block, err := c.mockChain.AddNewMinedBlock(parent)
+		if err != nil {
+			panic(fmt.Sprintf("failed to mine block: %v", err))
+		}
+
+		// announce block
+		newBlock := eth.NewBlockPacket{Block: block, TD: c.mockChain.blockchain.GetTdByHash(block.Hash())}
+		if err := c.peer.Write66(&newBlock, 23); err != nil {
+			panic(err)
+		}
+
+		// check if tdd is reached
+		tdd := new(big.Int).SetUint64(c.Tdd)
+		td := c.mockChain.blockchain.GetTdByHash(c.mockChain.blockchain.CurrentHeader().Hash())
+		if td.Cmp(tdd) == 0 {
+			break
+		}
+	}
+
+	c.log.Warn("transitioning to POS")
 
 	for {
 		select {
@@ -206,12 +240,7 @@ func (c *ConsensusCmd) RunNode() {
 
 					slotLog.WithField("blockhash", block.Hash()).Info("built external block")
 
-					// c.mockExecution(slotLog, block)
-					newBlock := eth.NewBlockPacket{block, block.Header().Number}
-					err := c.peer.Write66(&newBlock, 23)
-					if err != nil {
-						panic(err)
-					}
+					c.mockExecution(slotLog, block)
 				}
 
 				if block != nil {
@@ -253,7 +282,8 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 		}
 
 		// send it back to execution layer for execution
-		ctx, _ := context.WithTimeout(c.ctx, time.Second*20)
+		ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
+		defer cancel()
 		execStatus, err := ExecutePayload(ctx, c.engine, log, payload)
 		if err != nil {
 			log.WithError(err).Error("failed to execute payload")
@@ -270,7 +300,9 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 }
 
 func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayload, error) {
-	ctx, _ := context.WithTimeout(c.ctx, time.Second*20)
+	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
+	defer cancel()
+
 	params := &PreparePayloadParams{
 		ParentHash:   parent,
 		Timestamp:    Uint64Quantity(c.SlotTimestamp(slot)),
@@ -286,7 +318,8 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, 
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {
-	ctx, _ := context.WithTimeout(c.ctx, time.Second*20)
+	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
+	defer cancel()
 
 	// derive the random 32 bytes from the block hash for mocking ease
 	payload, err := BlockToPayload(block, mockRandomValue(block.Hash()))

@@ -159,12 +159,27 @@ func (c *ConsensusCmd) RunNode() {
 		// check if terminal total difficulty is reached
 		ttd := new(big.Int).SetUint64(c.Ttd)
 		td := c.mockChain.CurrentTd()
-		if td.Cmp(ttd) == 0 {
+		c.log.WithField("td", td).WithField("ttd", ttd).Info("comparing td to terminal td")
+		if td.Cmp(ttd) >= 0 {
 			break
 		}
 	}
 
 	c.log.Warn("transitioning to POS")
+
+	c.engine.Close()
+	c.mockChain.Close()
+
+	engine := &ExecutionConsensusMock{
+		pow: ethash.New(ethash.Config{PowMode: ethash.ModeFullFake}, nil, false),
+		log: c.log,
+	}
+	mc, err := NewMockChain(c.log, engine, c.GenesisPath, c.DataDir, &c.TraceLogConfig)
+	if err != nil {
+		c.log.WithField("err", err).Error("Unable to initialize mock chain")
+		os.Exit(1)
+	}
+	c.mockChain = mc
 
 	for {
 		select {

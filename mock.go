@@ -253,33 +253,21 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	config := c.gspec.Config
 	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	header := &types.Header{
-		ParentHash:  parent.Hash(),
-		UncleHash:   common.Hash{}, // updated by sealing, if necessary
-		Coinbase:    coinbase,
-		Root:        common.Hash{},                           // updated by Finalize, called within FinalizeAndAssemble
-		TxHash:      common.Hash{},                           // part of assembling
-		ReceiptHash: common.Hash{},                           // part of assembling
-		Bloom:       types.Bloom{},                           // part of assembling
-		Difficulty:  big.NewInt(100 + parent.Number.Int64()), // technically depends on time in PoW, but not here :')
-		Number:      new(big.Int).Add(parent.Number, common.Big1),
-		GasLimit:    gasLimit,
-		GasUsed:     0, // updated with ApplyTransaction
-		Time:        timestamp,
-		Extra:       extraData,
-		MixDigest:   common.Hash{},      // updated by sealing, if necessary
-		Nonce:       types.BlockNonce{}, // updated by sealing, if necessary
-		BaseFee:     nil,
+		ParentHash: parentHash,
+		Coinbase:   coinbase,
+		Difficulty: common.Big0,
+		Number:     new(big.Int).Add(parent.Number, common.Big1),
+		GasLimit:   gasLimit,
+		Time:       timestamp,
+		Extra:      extraData,
 	}
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
-		if !config.IsLondon(parent.Number) {
-			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
-			header.GasLimit = core.CalcGasLimit(parentGasLimit, gasLimit)
-		}
 	}
+
 	receipts := make([]*types.Receipt, 0)
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
 	stl := vm.NewStructLogger(&vm.LogConfig{
@@ -311,12 +299,9 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		c.log.Info("trace:\n" + string(buf.Bytes()))
 	}
 
-	block := types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil))
-	// Finalize and seal the block
-	// block, err := c.engine.FinalizeAndAssemble(&fakeChainReader{config}, header, statedb, txs, uncles, receipts)
-	// if err != nil {
-	//         return nil, fmt.Errorf("failed to finalize and assemble block: %v", err)
-	// }
+	header.GasUsed = header.GasLimit - uint64(*gasPool)
+	header.Root = statedb.IntermediateRoot(config.IsEIP158(header.Number))
+	block := types.NewBlock(header, txs, uncles, receipts, trie.NewStackTrie(nil))
 
 	// Write state changes to db
 	root, err := statedb.Commit(config.IsEIP158(header.Number))
@@ -326,12 +311,14 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
 		return nil, fmt.Errorf("trie write error: %v", err)
 	}
+
 	if storeBlock {
 		_, err = c.chain.InsertChain(types.Blocks{block})
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert block into chain")
 		}
 	}
+
 	return block, nil
 }
 
@@ -383,14 +370,7 @@ func (c *MockChain) MineBlock() (*types.Block, error) {
 		return nil, fmt.Errorf("sealing result timeout")
 	}
 
-	if err := c.engine.VerifyHeader(c.chain, block.Header(), true); err != nil {
-		c.log.WithField("err", err).Error("unexpected verification error")
-		os.Exit(1)
-	} else {
-		c.log.Info("header valid")
-	}
-
-	// Commit state changes to db
+	// Write state changes to db
 	root, err := statedb.Commit(config.IsEIP158(header.Number))
 	if err != nil {
 		return nil, fmt.Errorf("state write error: %v", err)

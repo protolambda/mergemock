@@ -3,19 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/params"
-	lru "github.com/hashicorp/golang-lru"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync/atomic"
 	"time"
+
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 
 	gethnode "github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -81,28 +82,17 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 	}
 	c.log = logr
 	c.ctx = ctx
-
 	c.close = make(chan struct{})
 
-	var db ethdb.Database
-	if c.DataDir == "" {
-		db = rawdb.NewMemoryDatabase()
-	} else {
-		db, err = rawdb.NewLevelDBDatabaseWithFreezer(c.DataDir, 128, 128, c.DataDir, "", false)
-		if err != nil {
-			return err
-		}
-	}
-
-	genesis, err := LoadGenesisConfig(c.GenesisPath)
+	engine := ethash.New(ethash.Config{PowMode: ethash.ModeFullFake}, nil, false)
+	chain, err := NewMockChain(logr, engine, c.GenesisPath, "", &c.TraceLogConfig)
 	if err != nil {
-		return err
+		logr.WithField("err", err).Error("Unable to initialize mock chain")
+		os.Exit(1)
 	}
-
-	mockChain := NewMockChain(logr, genesis, db, &c.TraceLogConfig)
 
 	recentPayloadsCache, err := lru.New(10)
-	backend := &EngineBackend{log: logr, mockChain: mockChain, recentPayloads: recentPayloadsCache}
+	backend := &EngineBackend{log: logr, mockChain: chain, recentPayloads: recentPayloadsCache}
 
 	c.rpcSrv = rpc.NewServer()
 	c.rpcSrv.RegisterName("engine", backend)
@@ -254,7 +244,7 @@ func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*Executio
 
 func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
-	parent := e.mockChain.blockchain.GetHeaderByHash(payload.ParentHash)
+	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		log.WithField("parent_hash", payload.ParentHash.String()).Warn("cannot execute payload, parent is unknown")
 		// TODO

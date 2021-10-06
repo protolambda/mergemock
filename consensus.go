@@ -9,17 +9,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/eth/protocols/eth"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
@@ -35,9 +34,10 @@ type ConsensusCmd struct {
 
 	EngineAddr  string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
 	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
+	EthashDir   string `ask:"--ethashdir" help:"Directory to store ethash data"`
 	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
 	Enode       string `ask:"--node" help:"Enode of execution client"`
-	Tdd         uint64 `ask:"--ttd" help:"The terminal total difficulty for the merge"`
+	Ttd         uint64 `ask:"--ttd" help:"The terminal total difficulty for the merge"`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -58,11 +58,8 @@ type ConsensusCmd struct {
 
 func (c *ConsensusCmd) Default() {
 	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
-
 	c.EngineAddr = "http://127.0.0.1:8550"
-
 	c.GenesisPath = "genesis.json"
-
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
@@ -81,37 +78,31 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return fmt.Errorf("slot time %s is too small", c.SlotTime.String())
 	}
 
+	// Connect to execution client engine api
 	client, err := rpc.DialContext(ctx, c.EngineAddr)
 	if err != nil {
 		return err
 	}
 
-	var db ethdb.Database
-	if c.DataDir == "" {
-		db = rawdb.NewMemoryDatabase()
-	} else {
-		db, err = rawdb.NewLevelDBDatabaseWithFreezer(c.DataDir, 128, 128, c.DataDir, "", false)
-		if err != nil {
-			return err
-		}
-	}
-
-	genesis, err := LoadGenesisConfig(c.GenesisPath)
+	ethash.MakeDataset(0, c.EthashDir)
+	engine := ethash.New(ethash.Config{PowMode: ethash.ModeNormal, DatasetDir: c.EthashDir, CacheDir: c.EthashDir}, nil, false)
+	mc, err := NewMockChain(log, engine, c.GenesisPath, c.DataDir, &c.TraceLogConfig)
 	if err != nil {
-		return err
+		log.WithField("err", err).Error("Unable to initialize mock chain")
+		os.Exit(1)
 	}
 
-	c.mockChain = NewMockChain(log, genesis, db, &c.TraceLogConfig)
 	peer, err := p2p.Dial(enode.MustParse(c.Enode))
 	if err != nil {
 		log.WithField("err", err).Error("Unable to connect to client")
 		os.Exit(1)
 	}
-	if err := peer.Peer(c.mockChain.blockchain, nil); err != nil {
+	if err := peer.Peer(mc.chain, nil); err != nil {
 		log.WithField("err", err).Error("Unable to peer with client")
 		os.Exit(1)
 	}
 
+	c.mockChain = mc
 	c.log = log
 	c.engine = client
 	c.peer = peer
@@ -152,24 +143,23 @@ func (c *ConsensusCmd) RunNode() {
 		// build a block, without using the engine, and insert it into the engine
 		c.log.Info("mining pre-transition block")
 
-		parent := c.mockChain.Head()
-		block, err := c.mockChain.AddNewMinedBlock(parent)
+		block, err := c.mockChain.MineBlock()
 		if err != nil {
 			c.log.WithField("err", err).Error("failed to mine block")
 			os.Exit(1)
 		}
 
 		// announce block
-		newBlock := eth.NewBlockPacket{Block: block, TD: c.mockChain.blockchain.GetTdByHash(block.Hash())}
+		newBlock := eth.NewBlockPacket{Block: block, TD: c.mockChain.CurrentTd()}
 		if err := c.peer.Write66(&newBlock, 23); err != nil {
 			c.log.WithField("err", err).Error("failed to msg peer")
 			os.Exit(1)
 		}
 
-		// check if tdd is reached
-		tdd := new(big.Int).SetUint64(c.Tdd)
-		td := c.mockChain.blockchain.GetTdByHash(c.mockChain.blockchain.CurrentHeader().Hash())
-		if td.Cmp(tdd) == 0 {
+		// check if terminal total difficulty is reached
+		ttd := new(big.Int).SetUint64(c.Ttd)
+		td := c.mockChain.CurrentTd()
+		if td.Cmp(ttd) == 0 {
 			break
 		}
 	}

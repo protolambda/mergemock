@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -27,20 +28,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
 )
-
-func LoadGenesisConfig(path string) (*core.Genesis, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read genesis file: %v", err)
-	}
-	defer file.Close()
-
-	var genesis core.Genesis
-	if err := json.NewDecoder(file).Decode(&genesis); err != nil {
-		return nil, fmt.Errorf("invalid genesis file: %v", err)
-	}
-	return &genesis, nil
-}
 
 // This implements the execution-block-header verification interface, but omits many of the details:
 // the mock doesn't fully verify, and sealing work of headers is very limited.
@@ -191,63 +178,75 @@ type TraceLogConfig struct {
 	Limit            int  `ask:"--limit" help:"maximum length of output, but zero means unlimited"`
 }
 
+type TransactionsCreator func(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction
+
 type MockChain struct {
-	log           logrus.Ext1FieldLogger
-	gspec         *core.Genesis
-	database      ethdb.Database
-	execConsensus consensus.Engine
-	ethash        *ethash.Ethash
-	blockchain    *core.BlockChain
-	traceOpts     *TraceLogConfig
+	chain     *core.BlockChain
+	database  ethdb.Database
+	engine    consensus.Engine
+	gspec     *core.Genesis
+	log       logrus.Ext1FieldLogger
+	traceOpts *TraceLogConfig
 }
 
-func NewMockChain(log logrus.Ext1FieldLogger,
-	genesis *core.Genesis, db ethdb.Database, 	traceOpts     *TraceLogConfig) *MockChain {
-
-	// TODO: real ethash, with very low difficulty
-	fakeEthash := ethash.NewFaker()
-	execConsensus := &ExecutionConsensusMock{fakeEthash, log}
-	engine := ethash.New(ethash.Config{PowMode: ethash.ModeNormal, DatasetDir: "/home/matt/development/mergemock/ethash", CacheDir: "/home/matt/development/mergemock/ethash"}, nil, false)
-	ethash.MakeDataset(0, "/home/matt/development/mergemock/ethash")
-
+func NewMockChain(log logrus.Ext1FieldLogger, engine consensus.Engine, genesisPath string, dataDir string, traceOpts *TraceLogConfig) (*MockChain, error) {
 	// Geth logs some things globally unfortunately.
 	// If we were using multiple mocks, we wouldn't know which one is logging what :(
 	gethlog.Root().SetHandler(&GethLogger{FieldLogger: log, Adjust: 0})
 
-	// todo: is overwriting harmful? Maybe do a safety check in case we restart from an existing db?
-	genesisBlock, err := genesis.Commit(db)
-	if err != nil {
-		panic(err)
-	}
-	log.WithField("genesis_block", genesisBlock.Hash()).Info("loaded config and committed genesis block")
+	var (
+		db  ethdb.Database
+		err error
+	)
 
-	blockchain, err := core.NewBlockChain(db, nil, genesis.Config, engine, vm.Config{}, nil, nil)
+	if dataDir == "" {
+		db = rawdb.NewMemoryDatabase()
+	} else {
+		db, err = rawdb.NewLevelDBDatabaseWithFreezer(dataDir, 128, 128, dataDir, "", false)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	genesis, err := LoadGenesisConfig(genesisPath)
 	if err != nil {
-		panic(err)
+		return nil, err
+	}
+
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	if (stored == common.Hash{}) {
+		_, err := genesis.Commit(db)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	bc, err := core.NewBlockChain(db, nil, genesis.Config, engine, vm.Config{}, nil, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return &MockChain{
-		log:           log,
-		gspec:         genesis,
-		database:      db,
-		execConsensus: execConsensus,
-		ethash:        engine,
-		blockchain:    blockchain,
-		traceOpts:     traceOpts,
-	}
+		chain:     bc,
+		database:  db,
+		engine:    engine,
+		gspec:     genesis,
+		log:       log,
+		traceOpts: traceOpts,
+	}, nil
 }
 
-type TransactionsCreator func(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction
-
 func (c *MockChain) Head() common.Hash {
-	return c.blockchain.CurrentBlock().Hash()
+	return c.chain.CurrentBlock().Hash()
+}
+
+func (c *MockChain) CurrentTd() *big.Int {
+	return c.chain.GetTdByHash(c.Head())
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
-func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64,
-	gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
-
-	parent := c.blockchain.GetHeaderByHash(parentHash)
+func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64, gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
+	parent := c.chain.GetHeaderByHash(parentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", parentHash)
 	}
@@ -296,9 +295,9 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	if c.traceOpts.EnableTrace {
 		vmconf.Tracer = stl
 	}
-	txs := txsCreator(config, c.blockchain, statedb, header, vmconf)
+	txs := txsCreator(config, c.chain, statedb, header, vmconf)
 	for i, tx := range txs {
-		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vmconf)
+		receipt, err := core.ApplyTransaction(config, c.chain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vmconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
@@ -312,11 +311,12 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		c.log.Info("trace:\n" + string(buf.Bytes()))
 	}
 
+	block := types.NewBlock(header, txs, nil, receipts, trie.NewStackTrie(nil))
 	// Finalize and seal the block
-	block, err := c.execConsensus.FinalizeAndAssemble(&fakeChainReader{config}, header, statedb, txs, uncles, receipts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to finalize and assemble block: %v", err)
-	}
+	// block, err := c.engine.FinalizeAndAssemble(&fakeChainReader{config}, header, statedb, txs, uncles, receipts)
+	// if err != nil {
+	//         return nil, fmt.Errorf("failed to finalize and assemble block: %v", err)
+	// }
 
 	// Write state changes to db
 	root, err := statedb.Commit(config.IsEIP158(header.Number))
@@ -327,7 +327,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		return nil, fmt.Errorf("trie write error: %v", err)
 	}
 	if storeBlock {
-		_, err = c.blockchain.InsertChain(types.Blocks{block})
+		_, err = c.chain.InsertChain(types.Blocks{block})
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert block into chain")
 		}
@@ -336,11 +336,14 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
-func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, error) {
-	config := c.gspec.Config
-	parent := c.blockchain.GetHeaderByHash(parentHash)
+func (c *MockChain) MineBlock() (*types.Block, error) {
+	var (
+		config = c.gspec.Config
+		parent = c.chain.GetHeaderByHash(c.Head())
+	)
+
 	if parent == nil {
-		return nil, fmt.Errorf("unknown parent %s", parentHash)
+		return nil, fmt.Errorf("unknown parent %s", c.Head())
 	}
 
 	header := &types.Header{
@@ -354,7 +357,7 @@ func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, erro
 	}
 
 	// Calculate difficulty
-	if err := c.ethash.Prepare(c.blockchain, header); err != nil {
+	if err := c.engine.Prepare(c.chain, header); err != nil {
 		return nil, fmt.Errorf("failed to prepare header for mining: %v", err)
 	}
 
@@ -363,14 +366,14 @@ func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, erro
 	if err != nil {
 		panic(err)
 	}
-	block, err := c.ethash.FinalizeAndAssemble(c.blockchain, header, statedb, nil, nil, nil)
+	block, err := c.engine.FinalizeAndAssemble(c.chain, header, statedb, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to finalize and assemble block: %v", err)
 	}
 
 	// Seal block
 	results := make(chan *types.Block)
-	if err := c.ethash.Seal(c.blockchain, block, results, nil); err != nil {
+	if err := c.engine.Seal(c.chain, block, results, nil); err != nil {
 		panic(fmt.Sprintf("failed to seal block: %v", err))
 	}
 	select {
@@ -379,21 +382,15 @@ func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, erro
 	case <-time.NewTimer(10000 * time.Second).C:
 		return nil, fmt.Errorf("sealing result timeout")
 	}
-	c.log.WithField("val", common.Bytes2Hex(c.ethash.SealHash(block.Header()).Bytes())).Trace("calculating seal hash")
 
-	if err := c.ethash.VerifyHeader(c.blockchain, block.Header(), true); err != nil {
+	if err := c.engine.VerifyHeader(c.chain, block.Header(), true); err != nil {
 		c.log.WithField("err", err).Error("unexpected verification error")
 		os.Exit(1)
 	} else {
 		c.log.Info("header valid")
 	}
 
-	s, _ := json.MarshalIndent(block.Header(), "", "    ")
-	c.log.Trace(string(s))
-	// raw, _ := rlp.EncodeToBytes(block)
-	// c.log.Trace(common.Bytes2Hex(raw))
-
-	// Write state changes to db
+	// Commit state changes to db
 	root, err := statedb.Commit(config.IsEIP158(header.Number))
 	if err != nil {
 		return nil, fmt.Errorf("state write error: %v", err)
@@ -403,7 +400,7 @@ func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, erro
 	}
 
 	// Insert block into chain
-	_, err = c.blockchain.InsertChain(types.Blocks{block})
+	_, err = c.chain.InsertChain(types.Blocks{block})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert block into chain")
 	}
@@ -412,8 +409,7 @@ func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, erro
 }
 
 func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, error) {
-
-	parent := c.blockchain.GetHeaderByHash(payload.ParentHash)
+	parent := c.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", payload.ParentHash)
 	}
@@ -472,7 +468,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 			return nil, fmt.Errorf("failed to decode tx %d: %v", i, err)
 		}
 		txs = append(txs, &tx)
-		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, &tx, &header.GasUsed, vmconf)
+		receipt, err := core.ApplyTransaction(config, c.chain, &header.Coinbase, gasPool, statedb, header, &tx, &header.GasUsed, vmconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
@@ -533,7 +529,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
 		return nil, fmt.Errorf("trie write error: %v", err)
 	}
-	_, err = c.blockchain.InsertChain(types.Blocks{block})
+	_, err = c.chain.InsertChain(types.Blocks{block})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert block into chain")
 	}
@@ -541,7 +537,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 }
 
 func (c *MockChain) Close() error {
-	err := c.execConsensus.Close()
+	err := c.engine.Close()
 	if err != nil {
 		c.log.WithError(err).Error("failed closing consensus engine")
 	}
@@ -551,6 +547,20 @@ func (c *MockChain) Close() error {
 	}
 	// TODO: maybe clean up?
 	return nil
+}
+
+func LoadGenesisConfig(path string) (*core.Genesis, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read genesis file: %v", err)
+	}
+	defer file.Close()
+
+	var genesis core.Genesis
+	if err := json.NewDecoder(file).Decode(&genesis); err != nil {
+		return nil, fmt.Errorf("invalid genesis file: %v", err)
+	}
+	return &genesis, nil
 }
 
 func mockRandomValue(seed [32]byte) [32]byte {

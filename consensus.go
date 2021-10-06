@@ -157,7 +157,10 @@ func (c *ConsensusCmd) RunNode() {
 				// gap slot
 				slotLog.Info("mocking gap slot, no payload execution here")
 			} else {
-				var block *types.Block
+				var (
+					block *types.Block
+					err   error
+				)
 				if c.RNG.Float64() < c.Freq.ProposalFreq {
 					// try get a block from the engine, we're a proposer!
 					slotLog.Info("proposing block with engine")
@@ -184,7 +187,7 @@ func (c *ConsensusCmd) RunNode() {
 					uncleBlocks := []*types.Header{} // none in proof of stake
 					creator := TransactionsCreator(dummyTxCreator)
 
-					block, err := c.mockChain.AddNewBlock(parent, coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
+					block, err = c.mockChain.AddNewBlock(parent, coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
 					if err != nil {
 						slotLog.WithError(err).Errorf("failed to add block")
 						continue
@@ -192,8 +195,7 @@ func (c *ConsensusCmd) RunNode() {
 
 					slotLog.WithField("blockhash", block.Hash()).Info("built external block")
 
-					// don't wait for the engine in the main loop
-					go c.mockExecution(slotLog, block)
+					c.mockExecution(slotLog, block)
 				}
 
 				if block != nil {

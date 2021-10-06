@@ -207,8 +207,8 @@ func NewMockChain(log logrus.Ext1FieldLogger,
 	// TODO: real ethash, with very low difficulty
 	fakeEthash := ethash.NewFaker()
 	execConsensus := &ExecutionConsensusMock{fakeEthash, log}
-
-	engine := ethash.New(ethash.Config{PowMode: ethash.ModeTest}, nil, false)
+	engine := ethash.New(ethash.Config{PowMode: ethash.ModeNormal, DatasetDir: "/home/matt/development/mergemock/ethash", CacheDir: "/home/matt/development/mergemock/ethash"}, nil, false)
+	ethash.MakeDataset(0, "/home/matt/development/mergemock/ethash")
 
 	// Geth logs some things globally unfortunately.
 	// If we were using multiple mocks, we wouldn't know which one is logging what :(
@@ -221,7 +221,7 @@ func NewMockChain(log logrus.Ext1FieldLogger,
 	}
 	log.WithField("genesis_block", genesisBlock.Hash()).Info("loaded config and committed genesis block")
 
-	blockchain, err := core.NewBlockChain(db, nil, genesis.Config, execConsensus, vm.Config{}, nil, nil)
+	blockchain, err := core.NewBlockChain(db, nil, genesis.Config, engine, vm.Config{}, nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -337,15 +337,12 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
 func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, error) {
+	config := c.gspec.Config
 	parent := c.blockchain.GetHeaderByHash(parentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", parentHash)
 	}
-	config := c.gspec.Config
-	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
-	if err != nil {
-		panic(err)
-	}
+
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     new(big.Int).Add(parent.Number, common.Big1),
@@ -355,28 +352,46 @@ func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, erro
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
 	}
+
+	// Calculate difficulty
 	if err := c.ethash.Prepare(c.blockchain, header); err != nil {
 		return nil, fmt.Errorf("failed to prepare header for mining: %v", err)
 	}
 
-	// Mine block
-	results := make(chan *types.Block)
-	if err := c.ethash.Seal(nil, types.NewBlockWithHeader(header), results, nil); err != nil {
-		panic(fmt.Sprintf("failed to seal block: %v", err))
+	// Finalize block
+	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
+	if err != nil {
+		panic(err)
 	}
-	select {
-	case block := <-results:
-		header.Nonce = types.EncodeNonce(block.Nonce())
-		header.MixDigest = block.MixDigest()
-	case <-time.NewTimer(4 * time.Second).C:
-		return nil, fmt.Errorf("sealing result timeout")
-	}
-
-	// Finalize and seal the block
-	block, err := c.execConsensus.FinalizeAndAssemble(c.blockchain, header, statedb, nil, nil, nil)
+	block, err := c.ethash.FinalizeAndAssemble(c.blockchain, header, statedb, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to finalize and assemble block: %v", err)
 	}
+
+	// Seal block
+	results := make(chan *types.Block)
+	if err := c.ethash.Seal(c.blockchain, block, results, nil); err != nil {
+		panic(fmt.Sprintf("failed to seal block: %v", err))
+	}
+	select {
+	case found := <-results:
+		block = found
+	case <-time.NewTimer(10000 * time.Second).C:
+		return nil, fmt.Errorf("sealing result timeout")
+	}
+	c.log.WithField("val", common.Bytes2Hex(c.ethash.SealHash(block.Header()).Bytes())).Trace("calculating seal hash")
+
+	if err := c.ethash.VerifyHeader(c.blockchain, block.Header(), true); err != nil {
+		c.log.WithField("err", err).Error("unexpected verification error")
+		os.Exit(1)
+	} else {
+		c.log.Info("header valid")
+	}
+
+	s, _ := json.MarshalIndent(block.Header(), "", "    ")
+	c.log.Trace(string(s))
+	// raw, _ := rlp.EncodeToBytes(block)
+	// c.log.Trace(common.Bytes2Hex(raw))
 
 	// Write state changes to db
 	root, err := statedb.Commit(config.IsEIP158(header.Number))
@@ -386,13 +401,12 @@ func (c *MockChain) AddNewMinedBlock(parentHash common.Hash) (*types.Block, erro
 	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
 		return nil, fmt.Errorf("trie write error: %v", err)
 	}
+
+	// Insert block into chain
 	_, err = c.blockchain.InsertChain(types.Blocks{block})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert block into chain")
 	}
-
-	s, _ := json.MarshalIndent(block.Header(), "", "    ")
-	c.log.Trace(string(s))
 
 	return block, nil
 }

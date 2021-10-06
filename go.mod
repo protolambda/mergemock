@@ -2,7 +2,7 @@ module mergemock
 
 go 1.17
 
-replace github.com/ethereum/go-ethereum => github.com/lightclient/go-ethereum v1.10.12
+replace github.com/ethereum/go-ethereum => /home/matt/development/go-ethereum
 
 require (
 	github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6 // indirect

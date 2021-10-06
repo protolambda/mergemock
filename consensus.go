@@ -155,13 +155,15 @@ func (c *ConsensusCmd) RunNode() {
 		parent := c.mockChain.Head()
 		block, err := c.mockChain.AddNewMinedBlock(parent)
 		if err != nil {
-			panic(fmt.Sprintf("failed to mine block: %v", err))
+			c.log.WithField("err", err).Error("failed to mine block")
+			os.Exit(1)
 		}
 
 		// announce block
 		newBlock := eth.NewBlockPacket{Block: block, TD: c.mockChain.blockchain.GetTdByHash(block.Hash())}
 		if err := c.peer.Write66(&newBlock, 23); err != nil {
-			panic(err)
+			c.log.WithField("err", err).Error("failed to msg peer")
+			os.Exit(1)
 		}
 
 		// check if tdd is reached

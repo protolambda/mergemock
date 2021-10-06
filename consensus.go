@@ -210,8 +210,7 @@ func (c *ConsensusCmd) RunNode() {
 					block *types.Block
 					err   error
 				)
-				// if c.RNG.Float64() < c.Freq.ProposalFreq {
-				if false {
+				if c.RNG.Float64() < c.Freq.ProposalFreq {
 					// try get a block from the engine, we're a proposer!
 					slotLog.Info("Proposing block with engine")
 

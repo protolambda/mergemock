@@ -519,11 +519,11 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 func (c *MockChain) Close() error {
 	err := c.engine.Close()
 	if err != nil {
-		c.log.WithError(err).Error("failed closing consensus engine")
+		c.log.WithError(err).Error("Failed closing consensus engine")
 	}
 	err = c.database.Close()
 	if err != nil {
-		c.log.WithError(err).Error("failed closing database")
+		c.log.WithError(err).Error("Failed closing database")
 	}
 	// TODO: maybe clean up?
 	return nil

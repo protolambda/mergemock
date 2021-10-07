@@ -188,7 +188,7 @@ func PreparePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	params *PreparePayloadParams) (result *PreparePayloadResult, err error) {
 
 	e := log.WithField("params", params)
-	e.Debug("preparing payload")
+	e.Debug("Preparing payload")
 	var out PreparePayloadResult
 	err = cl.CallContext(ctx, &out, "engine_preparePayload", params)
 	if err != nil {
@@ -244,7 +244,7 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	var result ExecutePayloadResult
 	err := cl.CallContext(ctx, &result, "engine_executePayload", payload)
 	if err != nil {
-		e.WithError(err).Error("payload execution failed")
+		e.WithError(err).Error("Payload execution failed")
 		return "", err
 	}
 	e.WithField("status", result.Status).Debug("Received payload execution result")
@@ -280,23 +280,23 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	params := ForkchoiceUpdatedParams{HeadBlockHash: head, FinalizedBlockHash: finalized}
 
 	e := log.WithField("head", head).WithField("finalized", finalized)
-	e.Debug("sharing forkchoice-updated signal")
+	e.Debug("Sharing forkchoice-updated signal")
 
 	err := cl.CallContext(ctx, nil, "engine_forkchoiceUpdated", &params)
 	if err == nil || err == rpc.ErrNoResult {
-		e.Debug("shared forkchoice-updated signal")
+		e.Debug("Shared forkchoice-updated signal")
 		return nil
 	} else {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(rpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
 			if code != UnknownBlock {
-				e.WithField("code", code).Warn("unexpected error code in forkchoice-updated response")
+				e.WithField("code", code).Warn("Unexpected error code in forkchoice-updated response")
 			} else {
-				e.Info("unknown block in forkchoice-updated signal")
+				e.Info("Unknown block in forkchoice-updated signal")
 			}
 		} else {
-			e.Error("failed to share forkchoice-updated signal")
+			e.Error("Failed to share forkchoice-updated signal")
 		}
 		return err
 	}

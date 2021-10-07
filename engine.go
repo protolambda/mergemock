@@ -3,19 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/params"
-	lru "github.com/hashicorp/golang-lru"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"sync/atomic"
 	"time"
+
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru"
 
 	gethnode "github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -81,28 +82,17 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 	}
 	c.log = logr
 	c.ctx = ctx
-
 	c.close = make(chan struct{})
 
-	var db ethdb.Database
-	if c.DataDir == "" {
-		db = rawdb.NewMemoryDatabase()
-	} else {
-		db, err = rawdb.NewLevelDBDatabaseWithFreezer(c.DataDir, 128, 128, c.DataDir, "", false)
-		if err != nil {
-			return err
-		}
-	}
-
-	genesis, err := LoadGenesisConfig(c.GenesisPath)
+	engine := ethash.New(ethash.Config{PowMode: ethash.ModeFullFake}, nil, false)
+	chain, err := NewMockChain(logr, engine, c.GenesisPath, "", &c.TraceLogConfig)
 	if err != nil {
-		return err
+		logr.WithField("err", err).Error("Unable to initialize mock chain")
+		os.Exit(1)
 	}
-
-	mockChain := NewMockChain(logr, genesis, db, &c.TraceLogConfig)
 
 	recentPayloadsCache, err := lru.New(10)
-	backend := &EngineBackend{log: logr, mockChain: mockChain, recentPayloads: recentPayloadsCache}
+	backend := &EngineBackend{log: logr, mockChain: chain, recentPayloads: recentPayloadsCache}
 
 	c.rpcSrv = rpc.NewServer()
 	c.rpcSrv.RegisterName("engine", backend)
@@ -113,7 +103,7 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		w.Write([]byte("wrong port, use the websocket port"))
-		logr.WithField("addr", r.RemoteAddr).Warn("user tried to connect to websocket on HTTP port")
+		logr.WithField("addr", r.RemoteAddr).Warn("User tried to connect to websocket on HTTP port")
 	})
 
 	// log http errors to our logrus logger
@@ -205,7 +195,7 @@ type EngineBackend struct {
 func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadParams) (*PreparePayloadResult, error) {
 	id := PayloadID(atomic.AddUint64((*uint64)(&e.payloadIdCounter), 1))
 	plog := e.log.WithField("payload_id", id)
-	plog.WithField("params", p).Info("preparing new payload")
+	plog.WithField("params", p).Info("Preparing new payload")
 
 	gasLimit := e.mockChain.gspec.GasLimit
 	txsCreator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext,
@@ -222,13 +212,13 @@ func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadPar
 
 	if err != nil {
 		// TODO: proper error codes
-		plog.WithError(err).Error("failed to create block, cannot build new payload")
+		plog.WithError(err).Error("Failed to create block, cannot build new payload")
 		return nil, err
 	}
 
 	payload, err := BlockToPayload(bl, p.Random)
 	if err != nil {
-		plog.WithError(err).Error("failed to convert block to payload")
+		plog.WithError(err).Error("Failed to convert block to payload")
 		// TODO: proper error codes
 		return nil, err
 	}
@@ -244,39 +234,39 @@ func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*Executio
 
 	payload, ok := e.recentPayloads.Get(id)
 	if !ok {
-		plog.Warn("cannot get unknown payload")
+		plog.Warn("Cannot get unknown payload")
 		return nil, &rpcError{err: fmt.Errorf("unknown payload %d", id), id: UnavailablePayload}
 	}
 
-	plog.Info("consensus client retrieved prepared payload")
+	plog.Info("Consensus client retrieved prepared payload")
 	return payload.(*ExecutionPayload), nil
 }
 
 func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
-	parent := e.mockChain.blockchain.GetHeaderByHash(payload.ParentHash)
+	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
-		log.WithField("parent_hash", payload.ParentHash.String()).Warn("cannot execute payload, parent is unknown")
+		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Cannot execute payload, parent is unknown")
 		// TODO
 		return &ExecutePayloadResult{Status: ExecutionSyncing}, nil
 	}
 
 	_, err := e.mockChain.ProcessPayload(payload)
 	if err != nil {
-		log.WithError(err).Error("failed to execute payload")
+		log.WithError(err).Error("Failed to execute payload")
 		// TODO proper error codes
 		return nil, err
 	}
-	log.Info("executed payload")
+	log.Info("Executed payload")
 	return &ExecutePayloadResult{Status: ExecutionValid}, nil
 }
 
 func (e *EngineBackend) ConsensusValidated(ctx context.Context, params *ConsensusValidatedParams) error {
-	e.log.WithField("params", params).Info("consensus validated")
+	e.log.WithField("params", params).Info("Consensus validated")
 	return nil
 }
 
 func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, params *ForkchoiceUpdatedParams) error {
-	e.log.WithField("params", params).Info("forkchoice validated")
+	e.log.WithField("params", params).Info("Forkchoice validated")
 	return nil
 }

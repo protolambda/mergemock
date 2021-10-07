@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -26,20 +28,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
 )
-
-func LoadGenesisConfig(path string) (*core.Genesis, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read genesis file: %v", err)
-	}
-	defer file.Close()
-
-	var genesis core.Genesis
-	if err := json.NewDecoder(file).Decode(&genesis); err != nil {
-		return nil, fmt.Errorf("invalid genesis file: %v", err)
-	}
-	return &genesis, nil
-}
 
 // This implements the execution-block-header verification interface, but omits many of the details:
 // the mock doesn't fully verify, and sealing work of headers is very limited.
@@ -190,92 +178,100 @@ type TraceLogConfig struct {
 	Limit            int  `ask:"--limit" help:"maximum length of output, but zero means unlimited"`
 }
 
+type TransactionsCreator func(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction
+
 type MockChain struct {
-	log           logrus.Ext1FieldLogger
-	gspec         *core.Genesis
-	database      ethdb.Database
-	execConsensus consensus.Engine
-	blockchain    *core.BlockChain
-	traceOpts     *TraceLogConfig
+	chain     *core.BlockChain
+	database  ethdb.Database
+	engine    consensus.Engine
+	gspec     *core.Genesis
+	log       logrus.Ext1FieldLogger
+	traceOpts *TraceLogConfig
 }
 
-func NewMockChain(log logrus.Ext1FieldLogger,
-	genesis *core.Genesis, db ethdb.Database, 	traceOpts     *TraceLogConfig) *MockChain {
-
-	// TODO: real ethash, with very low difficulty
-	fakeEthash := ethash.NewFaker()
-	execConsensus := &ExecutionConsensusMock{fakeEthash, log}
-
+func NewMockChain(log logrus.Ext1FieldLogger, engine consensus.Engine, genesisPath string, dataDir string, traceOpts *TraceLogConfig) (*MockChain, error) {
 	// Geth logs some things globally unfortunately.
 	// If we were using multiple mocks, we wouldn't know which one is logging what :(
 	gethlog.Root().SetHandler(&GethLogger{FieldLogger: log, Adjust: 0})
 
-	// todo: is overwriting harmful? Maybe do a safety check in case we restart from an existing db?
-	genesisBlock, err := genesis.Commit(db)
-	if err != nil {
-		panic(err)
-	}
-	log.WithField("genesis_block", genesisBlock.Hash()).Info("loaded config and committed genesis block")
+	var (
+		db  ethdb.Database
+		err error
+	)
 
-	blockchain, err := core.NewBlockChain(db, nil, genesis.Config, execConsensus, vm.Config{}, nil, nil)
+	if dataDir == "" {
+		db = rawdb.NewMemoryDatabase()
+	} else {
+		db, err = rawdb.NewLevelDBDatabaseWithFreezer(dataDir, 128, 128, dataDir, "", false)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	genesis, err := LoadGenesisConfig(genesisPath)
 	if err != nil {
-		panic(err)
+		return nil, err
+	}
+
+	stored := rawdb.ReadCanonicalHash(db, 0)
+	if (stored == common.Hash{}) {
+		_, err := genesis.Commit(db)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	bc, err := core.NewBlockChain(db, nil, genesis.Config, engine, vm.Config{}, nil, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return &MockChain{
-		log:           log,
-		gspec:         genesis,
-		database:      db,
-		execConsensus: execConsensus,
-		blockchain:    blockchain,
-		traceOpts:     traceOpts,
-	}
+		chain:     bc,
+		database:  db,
+		engine:    engine,
+		gspec:     genesis,
+		log:       log,
+		traceOpts: traceOpts,
+	}, nil
 }
 
-type TransactionsCreator func(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction
-
 func (c *MockChain) Head() common.Hash {
-	return c.blockchain.CurrentBlock().Hash()
+	return c.chain.CurrentBlock().Hash()
+}
+
+func (c *MockChain) CurrentTd() *big.Int {
+	return c.chain.GetTdByHash(c.Head())
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
-func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64,
-	gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
-
-	parent := c.blockchain.GetHeaderByHash(parentHash)
+func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64, gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
+	parent := c.chain.GetHeaderByHash(parentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", parentHash)
 	}
 	config := c.gspec.Config
 	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	header := &types.Header{
-		ParentHash:  parent.Hash(),
-		UncleHash:   common.Hash{}, // updated by sealing, if necessary
-		Coinbase:    coinbase,
-		Root:        common.Hash{}, // updated by Finalize, called within FinalizeAndAssemble
-		TxHash:      common.Hash{}, // part of assembling
-		ReceiptHash: common.Hash{}, // part of assembling
-		Bloom:       types.Bloom{}, // part of assembling
-		Difficulty:  common.Big0,   // technically depends on time in PoW, but not here :')
-		Number:      new(big.Int).Add(parent.Number, common.Big1),
-		GasLimit:    gasLimit,
-		GasUsed:     0, // updated with ApplyTransaction
-		Time:        timestamp,
-		Extra:       extraData,
-		MixDigest:   common.Hash{},      // updated by sealing, if necessary
-		Nonce:       types.BlockNonce{}, // updated by sealing, if necessary
-		BaseFee:     nil,
+		ParentHash: parentHash,
+		Coinbase:   coinbase,
+		Difficulty: common.Big0,
+		Number:     new(big.Int).Add(parent.Number, common.Big1),
+		GasLimit:   gasLimit,
+		Time:       timestamp,
+		Extra:      extraData,
 	}
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
+		// At the transition, double the gas limit so the gas target is equal to the old gas limit.
 		if !config.IsLondon(parent.Number) {
-			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
-			header.GasLimit = core.CalcGasLimit(parentGasLimit, gasLimit)
+			header.GasLimit = parent.GasLimit * params.ElasticityMultiplier
 		}
 	}
+
 	receipts := make([]*types.Receipt, 0)
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
 	stl := vm.NewStructLogger(&vm.LogConfig{
@@ -291,9 +287,9 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	if c.traceOpts.EnableTrace {
 		vmconf.Tracer = stl
 	}
-	txs := txsCreator(config, c.blockchain, statedb, header, vmconf)
+	txs := txsCreator(config, c.chain, statedb, header, vmconf)
 	for i, tx := range txs {
-		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vmconf)
+		receipt, err := core.ApplyTransaction(config, c.chain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vmconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
@@ -307,10 +303,79 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		c.log.Info("trace:\n" + string(buf.Bytes()))
 	}
 
-	// Finalize and seal the block
-	block, err := c.execConsensus.FinalizeAndAssemble(&fakeChainReader{config}, header, statedb, txs, uncles, receipts)
+	header.GasUsed = header.GasLimit - uint64(*gasPool)
+	header.Root = statedb.IntermediateRoot(config.IsEIP158(header.Number))
+	block := types.NewBlock(header, txs, uncles, receipts, trie.NewStackTrie(nil))
+
+	// Write state changes to db
+	root, err := statedb.Commit(config.IsEIP158(header.Number))
+	if err != nil {
+		return nil, fmt.Errorf("state write error: %v", err)
+	}
+	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
+		return nil, fmt.Errorf("trie write error: %v", err)
+	}
+
+	if storeBlock {
+		_, err = c.chain.InsertChain(types.Blocks{block})
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert block into chain")
+		}
+	}
+
+	return block, nil
+}
+
+// Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
+func (c *MockChain) MineBlock() (*types.Block, error) {
+	var (
+		config = c.gspec.Config
+		parent = c.chain.GetHeaderByHash(c.Head())
+	)
+
+	if parent == nil {
+		return nil, fmt.Errorf("unknown parent %s", c.Head())
+	}
+
+	header := &types.Header{
+		ParentHash: parent.Hash(),
+		Number:     new(big.Int).Add(parent.Number, common.Big1),
+		GasLimit:   parent.GasLimit,
+		Time:       parent.Time + 1,
+	}
+	if config.IsLondon(header.Number) {
+		header.BaseFee = misc.CalcBaseFee(config, parent)
+		// At the transition, double the gas limit so the gas target is equal to the old gas limit.
+		if !config.IsLondon(parent.Number) {
+			header.GasLimit = parent.GasLimit * params.ElasticityMultiplier
+		}
+	}
+
+	// Calculate difficulty
+	if err := c.engine.Prepare(c.chain, header); err != nil {
+		return nil, fmt.Errorf("failed to prepare header for mining: %v", err)
+	}
+
+	// Finalize block
+	statedb, err := state.New(parent.Root, state.NewDatabase(c.database), nil)
+	if err != nil {
+		panic(err)
+	}
+	block, err := c.engine.FinalizeAndAssemble(c.chain, header, statedb, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to finalize and assemble block: %v", err)
+	}
+
+	// Seal block
+	results := make(chan *types.Block)
+	if err := c.engine.Seal(c.chain, block, results, nil); err != nil {
+		panic(fmt.Sprintf("failed to seal block: %v", err))
+	}
+	select {
+	case found := <-results:
+		block = found
+	case <-time.NewTimer(10000 * time.Second).C:
+		return nil, fmt.Errorf("sealing result timeout")
 	}
 
 	// Write state changes to db
@@ -321,18 +386,18 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
 		return nil, fmt.Errorf("trie write error: %v", err)
 	}
-	if storeBlock {
-		_, err = c.blockchain.InsertChain(types.Blocks{block})
-		if err != nil {
-			return nil, fmt.Errorf("failed to insert block into chain")
-		}
+
+	// Insert block into chain
+	_, err = c.chain.InsertChain(types.Blocks{block})
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert block into chain")
 	}
+
 	return block, nil
 }
 
 func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, error) {
-
-	parent := c.blockchain.GetHeaderByHash(payload.ParentHash)
+	parent := c.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", payload.ParentHash)
 	}
@@ -361,12 +426,9 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	}
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
+		// At the transition, double the gas limit so the gas target is equal to the old gas limit.
 		if !config.IsLondon(parent.Number) {
-			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
-			adjusted := core.CalcGasLimit(parentGasLimit, uint64(payload.GasLimit))
-			if adjusted != uint64(payload.GasLimit) {
-				return nil, fmt.Errorf("gas limit too far off: %d <> %d", adjusted, payload.GasLimit)
-			}
+			header.GasLimit = parent.GasLimit * params.ElasticityMultiplier
 		}
 	}
 	receipts := make([]*types.Receipt, 0)
@@ -391,7 +453,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 			return nil, fmt.Errorf("failed to decode tx %d: %v", i, err)
 		}
 		txs = append(txs, &tx)
-		receipt, err := core.ApplyTransaction(config, c.blockchain, &header.Coinbase, gasPool, statedb, header, &tx, &header.GasUsed, vmconf)
+		receipt, err := core.ApplyTransaction(config, c.chain, &header.Coinbase, gasPool, statedb, header, &tx, &header.GasUsed, vmconf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply transaction %d: %v", i, err)
 		}
@@ -452,7 +514,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
 		return nil, fmt.Errorf("trie write error: %v", err)
 	}
-	_, err = c.blockchain.InsertChain(types.Blocks{block})
+	_, err = c.chain.InsertChain(types.Blocks{block})
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert block into chain")
 	}
@@ -460,16 +522,30 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 }
 
 func (c *MockChain) Close() error {
-	err := c.execConsensus.Close()
+	err := c.engine.Close()
 	if err != nil {
-		c.log.WithError(err).Error("failed closing consensus engine")
+		c.log.WithError(err).Error("Failed closing consensus engine")
 	}
 	err = c.database.Close()
 	if err != nil {
-		c.log.WithError(err).Error("failed closing database")
+		c.log.WithError(err).Error("Failed closing database")
 	}
 	// TODO: maybe clean up?
 	return nil
+}
+
+func LoadGenesisConfig(path string) (*core.Genesis, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read genesis file: %v", err)
+	}
+	defer file.Close()
+
+	var genesis core.Genesis
+	if err := json.NewDecoder(file).Decode(&genesis); err != nil {
+		return nil, fmt.Errorf("invalid genesis file: %v", err)
+	}
+	return &genesis, nil
 }
 
 func mockRandomValue(seed [32]byte) [32]byte {

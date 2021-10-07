@@ -266,6 +266,10 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	}
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
+		// At the transition, double the gas limit so the gas target is equal to the old gas limit.
+		if !config.IsLondon(parent.Number) {
+			header.GasLimit = parent.GasLimit * params.ElasticityMultiplier
+		}
 	}
 
 	receipts := make([]*types.Receipt, 0)
@@ -341,6 +345,10 @@ func (c *MockChain) MineBlock() (*types.Block, error) {
 	}
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
+		// At the transition, double the gas limit so the gas target is equal to the old gas limit.
+		if !config.IsLondon(parent.Number) {
+			header.GasLimit = parent.GasLimit * params.ElasticityMultiplier
+		}
 	}
 
 	// Calculate difficulty
@@ -418,12 +426,9 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	}
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
+		// At the transition, double the gas limit so the gas target is equal to the old gas limit.
 		if !config.IsLondon(parent.Number) {
-			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
-			adjusted := core.CalcGasLimit(parentGasLimit, uint64(payload.GasLimit))
-			if adjusted != uint64(payload.GasLimit) {
-				return nil, fmt.Errorf("gas limit too far off: %d <> %d", adjusted, payload.GasLimit)
-			}
+			header.GasLimit = parent.GasLimit * params.ElasticityMultiplier
 		}
 	}
 	receipts := make([]*types.Receipt, 0)

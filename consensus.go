@@ -223,7 +223,10 @@ func (c *ConsensusCmd) RunNode() {
 
 					coinbase := common.Address{0x13, 0x37}
 
-					block = c.mockProposal(slotLog, parent, slot, coinbase, random32, consensusProposalFail)
+					go func() {
+						block = c.mockProposal(slotLog, parent, slot, coinbase, random32, consensusProposalFail)
+						ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
+					}()
 				} else {
 					// build a block, without using the engine, and insert it into the engine
 					slotLog.Debug("Mocking external block")
@@ -244,14 +247,11 @@ func (c *ConsensusCmd) RunNode() {
 
 					slotLog.WithField("blockhash", block.Hash()).Debug("Built external block")
 
-					c.mockExecution(slotLog, block)
+					go func() {
+						c.mockExecution(slotLog, block)
+						ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
+					}()
 				}
-
-				if block != nil {
-					ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
-				}
-
-				// TODO: signal finality changes
 			}
 
 		case <-c.close:

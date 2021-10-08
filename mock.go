@@ -240,6 +240,10 @@ func (c *MockChain) Head() common.Hash {
 	return c.chain.CurrentBlock().Hash()
 }
 
+func (c *MockChain) CurrentHeader() *types.Header {
+	return c.chain.CurrentHeader()
+}
+
 func (c *MockChain) CurrentTd() *big.Int {
 	return c.chain.GetTdByHash(c.Head())
 }
@@ -327,15 +331,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
-func (c *MockChain) MineBlock() (*types.Block, error) {
-	var (
-		config = c.gspec.Config
-		parent = c.chain.GetHeaderByHash(c.Head())
-	)
-
-	if parent == nil {
-		return nil, fmt.Errorf("unknown parent %s", c.Head())
-	}
+func (c *MockChain) MineBlock(parent *types.Header) (*types.Block, error) {
 
 	header := &types.Header{
 		ParentHash: parent.Hash(),
@@ -343,6 +339,8 @@ func (c *MockChain) MineBlock() (*types.Block, error) {
 		GasLimit:   parent.GasLimit,
 		Time:       parent.Time + 1,
 	}
+
+	config := c.gspec.Config
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
 		// At the transition, double the gas limit so the gas target is equal to the old gas limit.

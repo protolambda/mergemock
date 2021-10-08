@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/p2p/rlpx"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/sirupsen/logrus"
 )
 
 var pretty = spew.ConfigState{
@@ -207,6 +208,25 @@ loop:
 		return nil, fmt.Errorf("write to connection failed: %v", err)
 	}
 	return message, nil
+}
+
+func (c *Conn) Ping() error {
+	_, err := c.Conn.Write(2, nil)
+	return err
+}
+
+func (c *Conn) KeepAlive(log *logrus.Logger) {
+	ticker := time.NewTicker(20 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			log.Trace("Pinging peer")
+			err := c.Ping()
+			if err != nil {
+				log.WithField("err", err).Error("Unable to ping peer")
+			}
+		}
+	}
 }
 
 type Error struct {

@@ -47,11 +47,12 @@ type ConsensusCmd struct {
 
 	TraceLogConfig `ask:".trace" help:"Tracing options"`
 
-	close  chan struct{}
-	log    logrus.Ext1FieldLogger
-	ctx    context.Context
-	engine *rpc.Client
-	peer   *p2p.Conn
+	close        chan struct{}
+	log          logrus.Ext1FieldLogger
+	ctx          context.Context
+	engine       *rpc.Client
+	peer         *p2p.Conn
+	ethashConfig ethash.Config
 
 	mockChain *MockChain
 }
@@ -84,8 +85,16 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	// ethash.MakeDataset(0, c.EthashDir)
-	engine := ethash.New(ethash.Config{PowMode: ethash.ModeNormal, DatasetDir: c.EthashDir, CacheDir: c.EthashDir}, nil, false)
+	c.ethashConfig = ethash.Config{
+		PowMode:        ethash.ModeNormal,
+		DatasetDir:     c.EthashDir,
+		CacheDir:       c.EthashDir,
+		DatasetsInMem:  1,
+		DatasetsOnDisk: 2,
+		CachesInMem:    2,
+		CachesOnDisk:   3,
+	}
+	engine := ethash.New(c.ethashConfig, nil, false)
 	mc, err := NewMockChain(log, engine, c.GenesisPath, c.DataDir, &c.TraceLogConfig)
 	if err != nil {
 		log.WithField("err", err).Error("Unable to initialize mock chain")
@@ -101,6 +110,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		log.WithField("err", err).Error("Unable to peer with client")
 		os.Exit(1)
 	}
+	go peer.KeepAlive(log)
 
 	c.mockChain = mc
 	c.log = log
@@ -129,19 +139,26 @@ func (c *ConsensusCmd) ValidateTimestamp(timestamp uint64, slot uint64) error {
 func (c *ConsensusCmd) RunNode() {
 	// TODO: simulate data since genesis
 
-	slots := time.NewTicker(c.SlotTime)
+	var (
+		genesisTime     = time.Unix(int64(c.BeaconGenesisTime), 0)
+		slots           = time.NewTicker(c.SlotTime)
+		transitionBlock = &types.Header{}
+	)
+
 	// align ticker with genesis
 	//slots.Reset(c.PastGenesis % c.SlotTime) // TODO
 	defer slots.Stop()
 
-	genesisTime := time.Unix(int64(c.BeaconGenesisTime), 0)
-
 	// Send pre-transition blocks
 	for {
-		// build a block, without using the engine, and insert it into the engine
-		c.log.Info("Mining pre-transition block")
+		parent := c.mockChain.CurrentHeader()
 
-		block, err := c.mockChain.MineBlock()
+		if c.RNG.Float64() < c.Freq.ReorgFrequency {
+			parent = c.calcReorgTarget(parent.Number.Uint64(), 0)
+		}
+
+		// build a block, without using the engine, and insert it into the engine
+		block, err := c.mockChain.MineBlock(parent)
 		if err != nil {
 			c.log.WithField("err", err).Error("Failed to mine block")
 			c.mockChain.Close()
@@ -161,6 +178,7 @@ func (c *ConsensusCmd) RunNode() {
 		c.log.WithField("td", td).WithField("ttd", ttd).Debug("Comparing TD to terminal TD")
 		if td.Cmp(ttd) >= 0 {
 			c.log.Info("Terminal total difficulty reached, transitioning to POS")
+			transitionBlock = c.mockChain.CurrentHeader()
 			break
 		}
 	}
@@ -169,7 +187,7 @@ func (c *ConsensusCmd) RunNode() {
 	c.mockChain.Close()
 
 	engine := &ExecutionConsensusMock{
-		pow: ethash.New(ethash.Config{PowMode: ethash.ModeFullFake, DatasetDir: c.EthashDir, CacheDir: c.EthashDir}, nil, false),
+		pow: ethash.New(c.ethashConfig, nil, false),
 		log: c.log,
 	}
 	mc, err := NewMockChain(c.log, engine, c.GenesisPath, c.DataDir, &c.TraceLogConfig)
@@ -198,9 +216,13 @@ func (c *ConsensusCmd) RunNode() {
 			slot := uint64(signedSlot)
 
 			// TODO: fake some forking by not always building on the latest payload
-			parent := c.mockChain.Head()
+			parent := c.mockChain.CurrentHeader()
+			if c.RNG.Float64() < c.Freq.ReorgFrequency {
+				parent = c.calcReorgTarget(parent.Number.Uint64(), transitionBlock.Number.Uint64())
+			}
+
 			slotLog := c.log.WithField("slot", slot)
-			slotLog.WithField("previous", parent).Info("Slot trigger")
+			slotLog.WithField("previous", parent.Hash()).Info("Slot trigger")
 
 			if c.RNG.Float64() < c.Freq.GapSlot {
 				// gap slot
@@ -224,8 +246,10 @@ func (c *ConsensusCmd) RunNode() {
 					coinbase := common.Address{0x13, 0x37}
 
 					go func() {
-						block = c.mockProposal(slotLog, parent, slot, coinbase, random32, consensusProposalFail)
-						ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
+						block = c.mockProposal(slotLog, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
+						if block != nil {
+							ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
+						}
 					}()
 				} else {
 					// build a block, without using the engine, and insert it into the engine
@@ -239,7 +263,7 @@ func (c *ConsensusCmd) RunNode() {
 					uncleBlocks := []*types.Header{} // none in proof of stake
 					creator := TransactionsCreator(dummyTxCreator)
 
-					block, err = c.mockChain.AddNewBlock(parent, coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
+					block, err = c.mockChain.AddNewBlock(parent.Hash(), coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
 					if err != nil {
 						slotLog.WithError(err).Errorf("Failed to add block")
 						continue
@@ -358,6 +382,12 @@ func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *s
 	tx, _ = types.SignTx(tx, signer, key)
 
 	return []*types.Transaction{tx}
+}
+
+func (c *ConsensusCmd) calcReorgTarget(parent uint64, min uint64) *types.Header {
+	depth := c.RNG.Float64() * float64(c.ReorgMaxDepth)
+	target := uint64(math.Max(float64(parent)-depth, float64(min)))
+	return c.mockChain.chain.GetHeaderByNumber(target)
 }
 
 func (c *ConsensusCmd) Close() error {

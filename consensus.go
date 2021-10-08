@@ -153,7 +153,7 @@ func (c *ConsensusCmd) RunNode() {
 	for {
 		parent := c.mockChain.CurrentHeader()
 
-		if c.RNG.Float64() < c.Freq.ReorgFrequency {
+		if c.RNG.Float64() < c.Freq.ReorgFreq {
 			parent = c.calcReorgTarget(parent.Number.Uint64(), 0)
 		}
 
@@ -210,14 +210,14 @@ func (c *ConsensusCmd) RunNode() {
 				continue
 			}
 			if signedSlot == 0 {
-				c.log.WithField("slot", 0).Info("genesis!")
+				c.log.WithField("slot", 0).Info("Genesis!")
 				continue
 			}
 			slot := uint64(signedSlot)
 
 			// TODO: fake some forking by not always building on the latest payload
 			parent := c.mockChain.CurrentHeader()
-			if c.RNG.Float64() < c.Freq.ReorgFrequency {
+			if c.RNG.Float64() < c.Freq.ReorgFreq {
 				parent = c.calcReorgTarget(parent.Number.Uint64(), transitionBlock.Number.Uint64())
 			}
 

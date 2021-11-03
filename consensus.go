@@ -358,7 +358,6 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 	}
 
 	ExecutePayload(ctx, c.engine, log, payload)
-	ConsensusValidated(ctx, c.engine, log, Bytes32(payload.BlockHash), ConsensusValid)
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {

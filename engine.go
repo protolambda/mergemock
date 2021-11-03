@@ -261,11 +261,6 @@ func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPa
 	return &ExecutePayloadResult{Status: ExecutionValid}, nil
 }
 
-func (e *EngineBackend) ConsensusValidated(ctx context.Context, params *ConsensusValidatedParams) error {
-	e.log.WithField("params", params).Info("Consensus validated")
-	return nil
-}
-
 func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, params *ForkchoiceUpdatedParams) error {
 	e.log.WithField("params", params).Info("Forkchoice validated")
 	return nil

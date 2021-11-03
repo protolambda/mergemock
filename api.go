@@ -163,20 +163,6 @@ type ExecutePayloadResult struct {
 	Status ExecutionPayloadStatus `json:"status"`
 }
 
-type ConsensusBlockStatus string
-
-const (
-	ConsensusValid   ConsensusBlockStatus = "VALID"
-	ConsensusInvalid ConsensusBlockStatus = "INVALID"
-)
-
-type ConsensusValidatedParams struct {
-	// block hash value of the payload
-	BlockHash Bytes32 `json:"blockHash"`
-	// result of the payload validation with respect to the proof-of-stake consensus rules
-	Status ConsensusBlockStatus `json:"status"`
-}
-
 type ForkchoiceUpdatedParams struct {
 	// block hash of the head of the canonical chain
 	HeadBlockHash Bytes32 `json:"headBlockHash"`
@@ -249,31 +235,6 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	}
 	e.WithField("status", result.Status).Debug("Received payload execution result")
 	return result.Status, nil
-}
-
-func ConsensusValidated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, blockHash Bytes32, status ConsensusBlockStatus) error {
-	params := ConsensusValidatedParams{BlockHash: blockHash, Status: status}
-
-	e := log.WithField("block_hash", blockHash).WithField("status", status)
-	e.Debug("sharing consensus-validated signal")
-
-	err := cl.CallContext(ctx, nil, "engine_consensusValidated", &params)
-	if err == nil || err == rpc.ErrNoResult {
-		return nil
-	} else {
-		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
-			code := ErrorCode(rpcErr.ErrorCode())
-			if code != UnknownBlock {
-				e.WithField("code", code).Warn("unexpected error code in consensus-validated response")
-			} else {
-				e.Info("unknown block in consensus-validated signal")
-			}
-		} else {
-			e.Error("failed to share consensus-validated signal")
-		}
-		return err
-	}
 }
 
 func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head Bytes32, finalized Bytes32) error {

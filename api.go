@@ -18,9 +18,7 @@ import (
 type ErrorCode int
 
 const (
-	ActionNotAllowed             = 2
-	UnknownBlock       ErrorCode = 4
-	UnavailablePayload ErrorCode = 5
+	UnavailablePayload ErrorCode = -32001
 )
 
 // received message isn't a valid request
@@ -247,11 +245,7 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 		e = e.WithError(err)
 		if rpcErr, ok := err.(rpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
-			if code != UnknownBlock {
-				e.WithField("code", code).Warn("Unexpected error code in forkchoice-updated response")
-			} else {
-				e.Info("Unknown block in forkchoice-updated signal")
-			}
+			e.WithField("code", code).Warn("Unexpected error code in forkchoice-updated response")
 		} else {
 			e.Error("Failed to share forkchoice-updated signal")
 		}

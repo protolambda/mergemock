@@ -310,15 +310,15 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 		// send it back to execution layer for execution
 		ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 		defer cancel()
-		execStatus, err := ExecutePayload(ctx, c.engine, log, payload)
+		res, err := ExecutePayload(ctx, c.engine, log, payload)
 		if err != nil {
 			log.WithError(err).Error("Failed to execute payload")
-		} else if execStatus == ExecutionValid {
+		} else if res.Status == ExecutionValid {
 			log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
-		} else if execStatus == ExecutionInvalid {
+		} else if res.Status == ExecutionInvalid {
 			log.WithField("blockhash", block.Hash()).Error("Engine just produced payload and failed to execute it after!")
 		} else {
-			log.WithField("status", execStatus).Error("Unrecognized execution status")
+			log.WithField("status", res.Status).Error("Unrecognized execution status")
 		}
 	}
 }

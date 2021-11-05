@@ -140,20 +140,24 @@ type PayloadAttributes struct {
 	FeeRecipient common.Address `json:"feeRecipient"`
 }
 
-type ExecutionPayloadStatus string
+type ExecutePayloadStatus string
 
 const (
 	// given payload is valid
-	ExecutionValid ExecutionPayloadStatus = "VALID"
+	ExecutionValid ExecutePayloadStatus = "VALID"
 	// given payload is invalid
-	ExecutionInvalid ExecutionPayloadStatus = "INVALID"
+	ExecutionInvalid ExecutePayloadStatus = "INVALID"
 	// sync process is in progress
-	ExecutionSyncing ExecutionPayloadStatus = "SYNCING"
+	ExecutionSyncing ExecutePayloadStatus = "SYNCING"
 )
 
 type ExecutePayloadResult struct {
 	// the result of the payload execution
-	Status ExecutionPayloadStatus `json:"status"`
+	Status ExecutePayloadStatus `json:"status"`
+	// the hash of the most recent valid block in the branch defined by payload and its ancestors
+	LatestValidHash Bytes32
+	// additional details on the result
+	Message string
 }
 
 type ForkchoiceUpdatedParams struct {
@@ -209,7 +213,7 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 }
 
 func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	payload *ExecutionPayload) (ExecutionPayloadStatus, error) {
+	payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 
 	e := log.WithField("block_hash", payload.BlockHash)
 	e.Debug("sending payload for execution")
@@ -217,10 +221,10 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	err := cl.CallContext(ctx, &result, "engine_executePayload", payload)
 	if err != nil {
 		e.WithError(err).Error("Payload execution failed")
-		return "", err
+		return nil, err
 	}
-	e.WithField("status", result.Status).Debug("Received payload execution result")
-	return result.Status, nil
+	e.WithField("status", result.Status).WithField("latestValidHash", result.LatestValidHash).WithField("message", result.Message).Debug("Received payload execution result")
+	return &result, nil
 }
 
 func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {

@@ -185,7 +185,7 @@ type ForkchoiceUpdatedResult struct {
 	PayloadID *PayloadID `json:"payloadId"`
 }
 
-func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
+func GetPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	payloadId PayloadID) (*ExecutionPayload, error) {
 
 	e := log.WithField("payload_id", payloadId)
@@ -210,7 +210,7 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	return &result, nil
 }
 
-func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
+func ExecutePayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 
 	e := log.WithField("block_hash", payload.BlockHash)
@@ -225,7 +225,7 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	return &result, nil
 }
 
-func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
+func ForkchoiceUpdatedV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
 	params := ForkchoiceUpdatedParams{
 		HeadBlockHash:      head,
 		SafeBlockHash:      safe,

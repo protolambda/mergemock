@@ -271,7 +271,7 @@ func (c *ConsensusCmd) RunNode() {
 					go func() {
 						c.mockExecution(slotLog, block)
 						latest := Bytes32(block.Hash())
-						ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, latest, nil)
+						ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, latest, latest, nil)
 					}()
 				}
 			}
@@ -310,7 +310,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 		// send it back to execution layer for execution
 		ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 		defer cancel()
-		res, err := ExecutePayload(ctx, c.engine, log, payload)
+		res, err := ExecutePayloadV1(ctx, c.engine, log, payload)
 		if err != nil {
 			log.WithError(err).Error("Failed to execute payload")
 		} else if res.Status == ExecutionValid {
@@ -333,7 +333,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, 
 		FeeRecipient: feeRecipient,
 	}
 	latest := Bytes32(parent)
-	res, err := ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, latest, &attributes)
+	res, err := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, latest, latest, &attributes)
 	if err != nil {
 		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
 		return nil, nil
@@ -343,7 +343,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, 
 		return nil, nil
 	}
 
-	return GetPayload(ctx, c.engine, log, *res.PayloadID)
+	return GetPayloadV1(ctx, c.engine, log, *res.PayloadID)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {
@@ -358,7 +358,7 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 		return
 	}
 
-	ExecutePayload(ctx, c.engine, log, payload)
+	ExecutePayloadV1(ctx, c.engine, log, payload)
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {

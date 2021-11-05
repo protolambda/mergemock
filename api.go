@@ -96,19 +96,7 @@ type Uint256Quantity = uint256.Int
 
 type Data = hexutil.Bytes
 
-type PayloadID uint64
-
-func (id *PayloadID) UnmarshalJSON(text []byte) error {
-	return (*hexutil.Uint64)(id).UnmarshalJSON(text)
-}
-
-func (id *PayloadID) UnmarshalText(text []byte) error {
-	return (*hexutil.Uint64)(id).UnmarshalText(text)
-}
-
-func (id PayloadID) MarshalText() ([]byte, error) {
-	return hexutil.Uint64(id).MarshalText()
-}
+type PayloadID = hexutil.Bytes
 
 type ExecutionPayload struct {
 	ParentHash    common.Hash     `json:"parentHash"`
@@ -153,20 +141,18 @@ type ExecutePayloadResult struct {
 	// the result of the payload execution
 	Status ExecutePayloadStatus `json:"status"`
 	// the hash of the most recent valid block in the branch defined by payload and its ancestors
-	LatestValidHash Bytes32
+	LatestValidHash Bytes32 `json:"latestValidHash"`
 	// additional details on the result
-	Message string
+	Message string `json:"message"`
 }
 
-type ForkchoiceUpdatedParams struct {
+type ForkchoiceState struct {
 	// block hash of the head of the canonical chain
 	HeadBlockHash Bytes32 `json:"headBlockHash"`
 	// safe block hash in the canonical chain
 	SafeBlockHash Bytes32 `json:"safeBlockHash"`
 	// block hash of the most recent finalized block
 	FinalizedBlockHash Bytes32 `json:"finalizedBlockHash"`
-	// payload attributes (optional)
-	PayloadAttributes *PayloadAttributes `json:"payloadAttributes"`
 }
 
 type ForkchoiceUpdatedStatus string
@@ -182,16 +168,16 @@ type ForkchoiceUpdatedResult struct {
 	// the result of the payload execution
 	Status ForkchoiceUpdatedStatus `json:"status"`
 	// the payload id if requested
-	PayloadID *PayloadID `json:"payloadId"`
+	PayloadID PayloadID `json:"payloadId"`
 }
 
-func GetPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
+func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	payloadId PayloadID) (*ExecutionPayload, error) {
 
 	e := log.WithField("payload_id", payloadId)
 	e.Debug("getting payload")
 	var result ExecutionPayload
-	err := cl.CallContext(ctx, &result, "engine_getPayload", payloadId)
+	err := cl.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
 	if err != nil {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(rpc.Error); ok {
@@ -210,13 +196,13 @@ func GetPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogge
 	return &result, nil
 }
 
-func ExecutePayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
+func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 
 	e := log.WithField("block_hash", payload.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutePayloadResult
-	err := cl.CallContext(ctx, &result, "engine_executePayload", payload)
+	err := cl.CallContext(ctx, &result, "engine_executePayloadV1", payload)
 	if err != nil {
 		e.WithError(err).Error("Payload execution failed")
 		return nil, err
@@ -225,21 +211,19 @@ func ExecutePayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 	return &result, nil
 }
 
-func ForkchoiceUpdatedV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
-	params := ForkchoiceUpdatedParams{
-		HeadBlockHash:      head,
-		SafeBlockHash:      safe,
-		FinalizedBlockHash: finalized,
-		PayloadAttributes:  payload,
-	}
+func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
+	state := &ForkchoiceState{HeadBlockHash: head, SafeBlockHash: safe, FinalizedBlockHash: finalized}
 
 	e := log.WithField("head", head).WithField("safe", safe).WithField("finalized", finalized).WithField("payload", payload)
 	e.Debug("Sharing forkchoice-updated signal")
 
 	var result ForkchoiceUpdatedResult
-	err := cl.CallContext(ctx, &result, "engine_forkchoiceUpdated", &params)
-	if err == nil || err == rpc.ErrNoResult {
+	err := cl.CallContext(ctx, &result, "engine_forkchoiceUpdatedV1", &state, &payload)
+	if err == nil {
 		e.Debug("Shared forkchoice-updated signal")
+		if payload != nil {
+			e.WithField("payloadId", result.PayloadID).Debug("Received payload id")
+		}
 		return result, nil
 	} else {
 		e = e.WithError(err)

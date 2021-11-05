@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -185,7 +187,7 @@ func (c *EngineCmd) Close() error {
 }
 
 type EngineBackend struct {
-	payloadIdCounter PayloadID
+	payloadIdCounter uint64
 
 	log       logrus.Ext1FieldLogger
 	mockChain *MockChain
@@ -193,7 +195,7 @@ type EngineBackend struct {
 	recentPayloads *lru.Cache
 }
 
-func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
+func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
 	plog := e.log.WithField("payload_id", id)
 
 	payload, ok := e.recentPayloads.Get(id)
@@ -206,7 +208,7 @@ func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*Executio
 	return payload.(*ExecutionPayload), nil
 }
 
-func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+func (e *EngineBackend) ExecutePayloadV1(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
 	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
@@ -225,17 +227,16 @@ func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPa
 	return &ExecutePayloadResult{Status: ExecutionValid}, nil
 }
 
-func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, p *ForkchoiceUpdatedParams) (*ForkchoiceUpdatedResult, error) {
-	e.log.WithField("params", p).Info("Forkchoice validated")
+func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceState, attributes *PayloadAttributes) (*ForkchoiceUpdatedResult, error) {
+	e.log.WithField("forkchoice state", heads).Info("Forkchoice validated")
 
-	if p.PayloadAttributes == nil {
+	if attributes == nil {
 		return nil, nil
 	}
-	id := PayloadID(atomic.AddUint64((*uint64)(&e.payloadIdCounter), 1))
-	attributes := p.PayloadAttributes
+	id := atomic.AddUint64(&e.payloadIdCounter, 1)
 
 	plog := e.log.WithField("payload_id", id)
-	plog.WithField("params", p).Info("Preparing new payload")
+	plog.WithField("attributes", attributes).Info("Preparing new payload")
 
 	gasLimit := e.mockChain.gspec.GasLimit
 	txsCreator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext,
@@ -247,7 +248,7 @@ func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, p *ForkchoiceUpda
 	})
 	extraData := []byte{}
 
-	bl, err := e.mockChain.AddNewBlock(common.BytesToHash(p.HeadBlockHash[:]), attributes.FeeRecipient, uint64(attributes.Timestamp),
+	bl, err := e.mockChain.AddNewBlock(common.BytesToHash(heads.HeadBlockHash[:]), attributes.FeeRecipient, uint64(attributes.Timestamp),
 		gasLimit, txsCreator, extraData, nil, false)
 
 	if err != nil {
@@ -266,5 +267,7 @@ func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, p *ForkchoiceUpda
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 
-	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: &id}, nil
+	buf := make(hexutil.Bytes, 8)
+	binary.PutUvarint(buf, id)
+	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: buf}, nil
 }

@@ -84,6 +84,7 @@ func (b *BytesMax32) UnmarshalText(text []byte) error {
 	}
 	return (*hexutil.Bytes)(b).UnmarshalText(text)
 }
+
 func (b BytesMax32) MarshalText() ([]byte, error) {
 	return (hexutil.Bytes)(b).MarshalText()
 }
@@ -212,13 +213,13 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 }
 
 func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
-	state := &ForkchoiceState{HeadBlockHash: head, SafeBlockHash: safe, FinalizedBlockHash: finalized}
+	heads := &ForkchoiceState{HeadBlockHash: head, SafeBlockHash: safe, FinalizedBlockHash: finalized}
 
 	e := log.WithField("head", head).WithField("safe", safe).WithField("finalized", finalized).WithField("payload", payload)
 	e.Debug("Sharing forkchoice-updated signal")
 
 	var result ForkchoiceUpdatedResult
-	err := cl.CallContext(ctx, &result, "engine_forkchoiceUpdatedV1", &state, &payload)
+	err := cl.CallContext(ctx, &result, "engine_forkchoiceUpdatedV1", &heads, &payload)
 	if err == nil {
 		e.Debug("Shared forkchoice-updated signal")
 		if payload != nil {

@@ -86,7 +86,6 @@ func (b *BytesMax32) UnmarshalText(text []byte) error {
 	}
 	return (*hexutil.Bytes)(b).UnmarshalText(text)
 }
-
 func (b BytesMax32) MarshalText() ([]byte, error) {
 	return (hexutil.Bytes)(b).MarshalText()
 }
@@ -132,19 +131,13 @@ type ExecutionPayload struct {
 	Transactions []Data `json:"transactions"`
 }
 
-type PreparePayloadParams struct {
-	// hash of the parent block
-	ParentHash common.Hash `json:"parentHash"`
+type PayloadAttributes struct {
 	// value for the timestamp field of the new payload
 	Timestamp Uint64Quantity `json:"timestamp"`
 	// value for the random field of the new payload
 	Random Bytes32 `json:"random"`
 	// suggested value for the coinbase field of the new payload
 	FeeRecipient common.Address `json:"feeRecipient"`
-}
-
-type PreparePayloadResult struct {
-	PayloadID PayloadID `json:"payloadId"`
 }
 
 type ExecutionPayloadStatus string
@@ -166,35 +159,28 @@ type ExecutePayloadResult struct {
 type ForkchoiceUpdatedParams struct {
 	// block hash of the head of the canonical chain
 	HeadBlockHash Bytes32 `json:"headBlockHash"`
+	// safe block hash in the canonical chain
+	SafeBlockHash Bytes32 `json:"safeBlockHash"`
 	// block hash of the most recent finalized block
 	FinalizedBlockHash Bytes32 `json:"finalizedBlockHash"`
+	// payload attributes (optional)
+	PayloadAttributes *PayloadAttributes `json:"payloadAttributes"`
 }
 
-func PreparePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	params *PreparePayloadParams) (result *PreparePayloadResult, err error) {
+type ForkchoiceUpdatedStatus string
 
-	e := log.WithField("params", params)
-	e.Debug("Preparing payload")
-	var out PreparePayloadResult
-	err = cl.CallContext(ctx, &out, "engine_preparePayload", params)
-	if err != nil {
-		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
-			code := ErrorCode(rpcErr.ErrorCode())
-			if code == UnknownBlock {
-				e.Warn("prepare-payload request referenced unknown block")
-			} else if code == ActionNotAllowed {
-				e.Warn("prepare-payload request was not allowed. Is the engine syncing?")
-			} else {
-				e.WithField("code", code).Warn("unexpected error code in prepare-payload response")
-			}
-		} else {
-			e.Error("failed to get payload")
-		}
-		return nil, err
-	}
-	e.WithField("payload_id", out.PayloadID).Debug("prepared payload")
-	return &out, nil
+const (
+	// given payload is valid
+	UpdateSuccess ForkchoiceUpdatedStatus = "SUCCESS"
+	// sync process is in progress
+	UpdateSyncing ForkchoiceUpdatedStatus = "SYNCING"
+)
+
+type ForkchoiceUpdatedResult struct {
+	// the result of the payload execution
+	Status ForkchoiceUpdatedStatus `json:"status"`
+	// the payload id if requested
+	PayloadID *PayloadID `json:"payloadId"`
 }
 
 func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
@@ -237,16 +223,22 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	return result.Status, nil
 }
 
-func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head Bytes32, finalized Bytes32) error {
-	params := ForkchoiceUpdatedParams{HeadBlockHash: head, FinalizedBlockHash: finalized}
+func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
+	params := ForkchoiceUpdatedParams{
+		HeadBlockHash:      head,
+		SafeBlockHash:      safe,
+		FinalizedBlockHash: finalized,
+		PayloadAttributes:  payload,
+	}
 
-	e := log.WithField("head", head).WithField("finalized", finalized)
+	e := log.WithField("head", head).WithField("safe", safe).WithField("finalized", finalized).WithField("payload", payload)
 	e.Debug("Sharing forkchoice-updated signal")
 
-	err := cl.CallContext(ctx, nil, "engine_forkchoiceUpdated", &params)
+	var result ForkchoiceUpdatedResult
+	err := cl.CallContext(ctx, &result, "engine_forkchoiceUpdated", &params)
 	if err == nil || err == rpc.ErrNoResult {
 		e.Debug("Shared forkchoice-updated signal")
-		return nil
+		return result, nil
 	} else {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(rpc.Error); ok {
@@ -259,7 +251,7 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 		} else {
 			e.Error("Failed to share forkchoice-updated signal")
 		}
-		return err
+		return result, err
 	}
 }
 

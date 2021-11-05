@@ -246,10 +246,7 @@ func (c *ConsensusCmd) RunNode() {
 					coinbase := common.Address{0x13, 0x37}
 
 					go func() {
-						block = c.mockProposal(slotLog, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
-						if block != nil {
-							ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
-						}
+						c.mockProposal(slotLog, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
 					}()
 				} else {
 					// build a block, without using the engine, and insert it into the engine
@@ -273,7 +270,8 @@ func (c *ConsensusCmd) RunNode() {
 
 					go func() {
 						c.mockExecution(slotLog, block)
-						ForkchoiceUpdated(c.ctx, c.engine, c.log, Bytes32(block.Hash()), Bytes32(block.Hash()))
+						latest := Bytes32(block.Hash())
+						ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, latest, nil)
 					}()
 				}
 			}
@@ -286,25 +284,25 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) *types.Block {
+func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) {
 	payload, err := c.mockPrep(log, parent, slot, random32, coinbase)
 	if err != nil {
 		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
-		return nil
+		return
 	}
 
 	if consensusFail {
 		log.Debug("Mocking a failed proposal on consensus-side, ignoring produced payload of engine")
-		return nil
+		return
 	} else {
 		if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
 			log.WithError(err).Error("Payload has bad timestamp")
-			return nil
+			return
 		}
 		block, err := c.mockChain.ProcessPayload(payload)
 		if err != nil {
 			log.WithError(err).Error("Failed to process execution payload from engine")
-			return nil
+			return
 		} else {
 			log.WithField("blockhash", block.Hash()).Debug("Processed payload in consensus mock world")
 		}
@@ -322,27 +320,30 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 		} else {
 			log.WithField("status", execStatus).Error("Unrecognized execution status")
 		}
-		return block
 	}
-
 }
 
 func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayload, error) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
 
-	params := &PreparePayloadParams{
-		ParentHash:   parent,
+	attributes := PayloadAttributes{
 		Timestamp:    Uint64Quantity(c.SlotTimestamp(slot)),
 		Random:       random,
 		FeeRecipient: feeRecipient,
 	}
-	res, err := PreparePayload(ctx, c.engine, log, params)
+	latest := Bytes32(parent)
+	res, err := ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, latest, &attributes)
 	if err != nil {
-		return nil, err
+		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
+		return nil, nil
+	}
+	if res.Status == UpdateSyncing {
+		log.Warn("Failed to prepare and get payload, execution client syncing")
+		return nil, nil
 	}
 
-	return GetPayload(ctx, c.engine, log, res.PayloadID)
+	return GetPayload(ctx, c.engine, log, *res.PayloadID)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {

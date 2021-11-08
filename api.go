@@ -18,9 +18,7 @@ import (
 type ErrorCode int
 
 const (
-	ActionNotAllowed             = 2
-	UnknownBlock       ErrorCode = 4
-	UnavailablePayload ErrorCode = 5
+	UnavailablePayload ErrorCode = -32001
 )
 
 // received message isn't a valid request
@@ -99,18 +97,22 @@ type Uint256Quantity = uint256.Int
 
 type Data = hexutil.Bytes
 
-type PayloadID uint64
+type PayloadID [8]byte
 
-func (id *PayloadID) UnmarshalJSON(text []byte) error {
-	return (*hexutil.Uint64)(id).UnmarshalJSON(text)
+func (b *PayloadID) UnmarshalJSON(text []byte) error {
+	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
 }
 
-func (id *PayloadID) UnmarshalText(text []byte) error {
-	return (*hexutil.Uint64)(id).UnmarshalText(text)
+func (b *PayloadID) UnmarshalText(text []byte) error {
+	return hexutil.UnmarshalFixedText("PayloadID", text, b[:])
 }
 
-func (id PayloadID) MarshalText() ([]byte, error) {
-	return hexutil.Uint64(id).MarshalText()
+func (b PayloadID) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(b[:]).MarshalText()
+}
+
+func (b PayloadID) String() string {
+	return hexutil.Encode(b[:])
 }
 
 type ExecutionPayload struct {
@@ -132,9 +134,7 @@ type ExecutionPayload struct {
 	Transactions []Data `json:"transactions"`
 }
 
-type PreparePayloadParams struct {
-	// hash of the parent block
-	ParentHash common.Hash `json:"parentHash"`
+type PayloadAttributes struct {
 	// value for the timestamp field of the new payload
 	Timestamp Uint64Quantity `json:"timestamp"`
 	// value for the random field of the new payload
@@ -143,72 +143,49 @@ type PreparePayloadParams struct {
 	FeeRecipient common.Address `json:"feeRecipient"`
 }
 
-type PreparePayloadResult struct {
-	PayloadID PayloadID `json:"payloadId"`
-}
-
-type ExecutionPayloadStatus string
+type ExecutePayloadStatus string
 
 const (
 	// given payload is valid
-	ExecutionValid ExecutionPayloadStatus = "VALID"
+	ExecutionValid ExecutePayloadStatus = "VALID"
 	// given payload is invalid
-	ExecutionInvalid ExecutionPayloadStatus = "INVALID"
+	ExecutionInvalid ExecutePayloadStatus = "INVALID"
 	// sync process is in progress
-	ExecutionSyncing ExecutionPayloadStatus = "SYNCING"
+	ExecutionSyncing ExecutePayloadStatus = "SYNCING"
 )
 
 type ExecutePayloadResult struct {
 	// the result of the payload execution
-	Status ExecutionPayloadStatus `json:"status"`
+	Status ExecutePayloadStatus `json:"status"`
+	// the hash of the most recent valid block in the branch defined by payload and its ancestors
+	LatestValidHash Bytes32 `json:"latestValidHash"`
+	// additional details on the result
+	Message string `json:"message"`
 }
 
-type ConsensusBlockStatus string
-
-const (
-	ConsensusValid   ConsensusBlockStatus = "VALID"
-	ConsensusInvalid ConsensusBlockStatus = "INVALID"
-)
-
-type ConsensusValidatedParams struct {
-	// block hash value of the payload
-	BlockHash Bytes32 `json:"blockHash"`
-	// result of the payload validation with respect to the proof-of-stake consensus rules
-	Status ConsensusBlockStatus `json:"status"`
-}
-
-type ForkchoiceUpdatedParams struct {
+type ForkchoiceState struct {
 	// block hash of the head of the canonical chain
 	HeadBlockHash Bytes32 `json:"headBlockHash"`
+	// safe block hash in the canonical chain
+	SafeBlockHash Bytes32 `json:"safeBlockHash"`
 	// block hash of the most recent finalized block
 	FinalizedBlockHash Bytes32 `json:"finalizedBlockHash"`
 }
 
-func PreparePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	params *PreparePayloadParams) (result *PreparePayloadResult, err error) {
+type ForkchoiceUpdatedStatus string
 
-	e := log.WithField("params", params)
-	e.Debug("Preparing payload")
-	var out PreparePayloadResult
-	err = cl.CallContext(ctx, &out, "engine_preparePayload", params)
-	if err != nil {
-		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
-			code := ErrorCode(rpcErr.ErrorCode())
-			if code == UnknownBlock {
-				e.Warn("prepare-payload request referenced unknown block")
-			} else if code == ActionNotAllowed {
-				e.Warn("prepare-payload request was not allowed. Is the engine syncing?")
-			} else {
-				e.WithField("code", code).Warn("unexpected error code in prepare-payload response")
-			}
-		} else {
-			e.Error("failed to get payload")
-		}
-		return nil, err
-	}
-	e.WithField("payload_id", out.PayloadID).Debug("prepared payload")
-	return &out, nil
+const (
+	// given payload is valid
+	UpdateSuccess ForkchoiceUpdatedStatus = "SUCCESS"
+	// sync process is in progress
+	UpdateSyncing ForkchoiceUpdatedStatus = "SYNCING"
+)
+
+type ForkchoiceUpdatedResult struct {
+	// the result of the payload execution
+	Status ForkchoiceUpdatedStatus `json:"status"`
+	// the payload id if requested
+	PayloadID PayloadID `json:"payloadId"`
 }
 
 func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
@@ -217,7 +194,7 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 	e := log.WithField("payload_id", payloadId)
 	e.Debug("getting payload")
 	var result ExecutionPayload
-	err := cl.CallContext(ctx, &result, "engine_getPayload", payloadId)
+	err := cl.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
 	if err != nil {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(rpc.Error); ok {
@@ -237,68 +214,43 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 }
 
 func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	payload *ExecutionPayload) (ExecutionPayloadStatus, error) {
+	payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 
 	e := log.WithField("block_hash", payload.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutePayloadResult
-	err := cl.CallContext(ctx, &result, "engine_executePayload", payload)
+	err := cl.CallContext(ctx, &result, "engine_executePayloadV1", payload)
 	if err != nil {
 		e.WithError(err).Error("Payload execution failed")
-		return "", err
+		return nil, err
 	}
-	e.WithField("status", result.Status).Debug("Received payload execution result")
-	return result.Status, nil
+	e.WithField("status", result.Status).WithField("latestValidHash", result.LatestValidHash).WithField("message", result.Message).Debug("Received payload execution result")
+	return &result, nil
 }
 
-func ConsensusValidated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, blockHash Bytes32, status ConsensusBlockStatus) error {
-	params := ConsensusValidatedParams{BlockHash: blockHash, Status: status}
+func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
+	heads := &ForkchoiceState{HeadBlockHash: head, SafeBlockHash: safe, FinalizedBlockHash: finalized}
 
-	e := log.WithField("block_hash", blockHash).WithField("status", status)
-	e.Debug("sharing consensus-validated signal")
-
-	err := cl.CallContext(ctx, nil, "engine_consensusValidated", &params)
-	if err == nil || err == rpc.ErrNoResult {
-		return nil
-	} else {
-		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
-			code := ErrorCode(rpcErr.ErrorCode())
-			if code != UnknownBlock {
-				e.WithField("code", code).Warn("unexpected error code in consensus-validated response")
-			} else {
-				e.Info("unknown block in consensus-validated signal")
-			}
-		} else {
-			e.Error("failed to share consensus-validated signal")
-		}
-		return err
-	}
-}
-
-func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head Bytes32, finalized Bytes32) error {
-	params := ForkchoiceUpdatedParams{HeadBlockHash: head, FinalizedBlockHash: finalized}
-
-	e := log.WithField("head", head).WithField("finalized", finalized)
+	e := log.WithField("head", head).WithField("safe", safe).WithField("finalized", finalized).WithField("payload", payload)
 	e.Debug("Sharing forkchoice-updated signal")
 
-	err := cl.CallContext(ctx, nil, "engine_forkchoiceUpdated", &params)
-	if err == nil || err == rpc.ErrNoResult {
+	var result ForkchoiceUpdatedResult
+	err := cl.CallContext(ctx, &result, "engine_forkchoiceUpdatedV1", &heads, &payload)
+	if err == nil {
 		e.Debug("Shared forkchoice-updated signal")
-		return nil
+		if payload != nil {
+			e.WithField("payloadId", result.PayloadID).Debug("Received payload id")
+		}
+		return result, nil
 	} else {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(rpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
-			if code != UnknownBlock {
-				e.WithField("code", code).Warn("Unexpected error code in forkchoice-updated response")
-			} else {
-				e.Info("Unknown block in forkchoice-updated signal")
-			}
+			e.WithField("code", code).Warn("Unexpected error code in forkchoice-updated response")
 		} else {
 			e.Error("Failed to share forkchoice-updated signal")
 		}
-		return err
+		return result, err
 	}
 }
 

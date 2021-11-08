@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -10,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -84,8 +85,17 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 	c.ctx = ctx
 	c.close = make(chan struct{})
 
-	engine := ethash.New(ethash.Config{PowMode: ethash.ModeFullFake}, nil, false)
-	chain, err := NewMockChain(logr, engine, c.GenesisPath, "", &c.TraceLogConfig)
+	posEngine := &ExecutionConsensusMock{
+		pow: nil, // TODO: do we even need this?
+		log: c.log,
+	}
+
+	db, err := NewDB(c.DataDir)
+	if err != nil {
+		logr.WithField("err", err).Error("Unable to open db")
+		os.Exit(1)
+	}
+	chain, err := NewMockChain(logr, posEngine, c.GenesisPath, db, &c.TraceLogConfig)
 	if err != nil {
 		logr.WithField("err", err).Error("Unable to initialize mock chain")
 		os.Exit(1)
@@ -184,7 +194,7 @@ func (c *EngineCmd) Close() error {
 }
 
 type EngineBackend struct {
-	payloadIdCounter PayloadID
+	payloadIdCounter uint64
 
 	log       logrus.Ext1FieldLogger
 	mockChain *MockChain
@@ -192,44 +202,7 @@ type EngineBackend struct {
 	recentPayloads *lru.Cache
 }
 
-func (e *EngineBackend) PreparePayload(ctx context.Context, p *PreparePayloadParams) (*PreparePayloadResult, error) {
-	id := PayloadID(atomic.AddUint64((*uint64)(&e.payloadIdCounter), 1))
-	plog := e.log.WithField("payload_id", id)
-	plog.WithField("params", p).Info("Preparing new payload")
-
-	gasLimit := e.mockChain.gspec.GasLimit
-	txsCreator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext,
-		statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
-		// empty payload
-
-		// TODO: maybe vary these a little?
-		return nil
-	})
-	extraData := []byte{}
-
-	bl, err := e.mockChain.AddNewBlock(p.ParentHash, p.FeeRecipient, uint64(p.Timestamp),
-		gasLimit, txsCreator, extraData, nil, false)
-
-	if err != nil {
-		// TODO: proper error codes
-		plog.WithError(err).Error("Failed to create block, cannot build new payload")
-		return nil, err
-	}
-
-	payload, err := BlockToPayload(bl, p.Random)
-	if err != nil {
-		plog.WithError(err).Error("Failed to convert block to payload")
-		// TODO: proper error codes
-		return nil, err
-	}
-
-	// store in cache for later retrieval
-	e.recentPayloads.Add(id, payload)
-
-	return &PreparePayloadResult{PayloadID: id}, nil
-}
-
-func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
+func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
 	plog := e.log.WithField("payload_id", id)
 
 	payload, ok := e.recentPayloads.Get(id)
@@ -242,7 +215,7 @@ func (e *EngineBackend) GetPayload(ctx context.Context, id PayloadID) (*Executio
 	return payload.(*ExecutionPayload), nil
 }
 
-func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+func (e *EngineBackend) ExecutePayloadV1(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
 	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
@@ -261,12 +234,52 @@ func (e *EngineBackend) ExecutePayload(ctx context.Context, payload *ExecutionPa
 	return &ExecutePayloadResult{Status: ExecutionValid}, nil
 }
 
-func (e *EngineBackend) ConsensusValidated(ctx context.Context, params *ConsensusValidatedParams) error {
-	e.log.WithField("params", params).Info("Consensus validated")
-	return nil
-}
+func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceState, attributes *PayloadAttributes) (*ForkchoiceUpdatedResult, error) {
+	e.log.WithFields(logrus.Fields{
+		"head":       heads.HeadBlockHash,
+		"safe":       heads.SafeBlockHash,
+		"finalized":  heads.FinalizedBlockHash,
+		"attributes": attributes,
+	}).Info("Forkchoice updated")
 
-func (e *EngineBackend) ForkchoiceUpdated(ctx context.Context, params *ForkchoiceUpdatedParams) error {
-	e.log.WithField("params", params).Info("Forkchoice validated")
-	return nil
+	if attributes == nil {
+		return nil, nil
+	}
+	idU64 := atomic.AddUint64(&e.payloadIdCounter, 1)
+	var id PayloadID
+	binary.BigEndian.PutUint64(id[:], idU64)
+
+	plog := e.log.WithField("payload_id", id)
+	plog.WithField("attributes", attributes).Info("Preparing new payload")
+
+	gasLimit := e.mockChain.gspec.GasLimit
+	txsCreator := TransactionsCreator(func(config *params.ChainConfig, bc core.ChainContext,
+		statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
+		// empty payload
+
+		// TODO: maybe vary these a little?
+		return nil
+	})
+	extraData := []byte{}
+
+	bl, err := e.mockChain.AddNewBlock(common.BytesToHash(heads.HeadBlockHash[:]), attributes.FeeRecipient, uint64(attributes.Timestamp),
+		gasLimit, txsCreator, extraData, nil, false)
+
+	if err != nil {
+		// TODO: proper error codes
+		plog.WithError(err).Error("Failed to create block, cannot build new payload")
+		return nil, err
+	}
+
+	payload, err := BlockToPayload(bl, attributes.Random)
+	if err != nil {
+		plog.WithError(err).Error("Failed to convert block to payload")
+		// TODO: proper error codes
+		return nil, err
+	}
+
+	// store in cache for later retrieval
+	e.recentPayloads.Add(id, payload)
+
+	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: id}, nil
 }

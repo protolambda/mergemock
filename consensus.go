@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"math"
 	"math/big"
 	"mergemock/p2p"
@@ -36,7 +37,7 @@ type ConsensusCmd struct {
 	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	EthashDir   string `ask:"--ethashdir" help:"Directory to store ethash data"`
 	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
-	Enode       string `ask:"--node" help:"Enode of execution client"`
+	Enode       string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
 	Ttd         uint64 `ask:"--ttd" help:"The terminal total difficulty for the merge"`
 
 	// embed consensus behaviors
@@ -47,12 +48,14 @@ type ConsensusCmd struct {
 
 	TraceLogConfig `ask:".trace" help:"Tracing options"`
 
-	close        chan struct{}
-	log          logrus.Ext1FieldLogger
-	ctx          context.Context
-	engine       *rpc.Client
-	peer         *p2p.Conn
-	ethashConfig ethash.Config
+	close  chan struct{}
+	log    logrus.Ext1FieldLogger
+	ctx    context.Context
+	engine *rpc.Client
+	db     ethdb.Database
+
+	ethashCfg ethash.Config
+	peer      *p2p.Conn
 
 	mockChain *MockChain
 }
@@ -61,6 +64,7 @@ func (c *ConsensusCmd) Default() {
 	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
 	c.EngineAddr = "http://127.0.0.1:8550"
 	c.GenesisPath = "genesis.json"
+	c.Enode = ""
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
@@ -85,7 +89,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	c.ethashConfig = ethash.Config{
+	c.ethashCfg = ethash.Config{
 		PowMode:        ethash.ModeNormal,
 		DatasetDir:     c.EthashDir,
 		CacheDir:       c.EthashDir,
@@ -94,28 +98,15 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		CachesInMem:    2,
 		CachesOnDisk:   3,
 	}
-	engine := ethash.New(c.ethashConfig, nil, false)
-	mc, err := NewMockChain(log, engine, c.GenesisPath, c.DataDir, &c.TraceLogConfig)
+
+	db, err := NewDB(c.DataDir)
 	if err != nil {
-		log.WithField("err", err).Error("Unable to initialize mock chain")
-		os.Exit(1)
+		return fmt.Errorf("failed to open new db: %v", err)
 	}
 
-	peer, err := p2p.Dial(enode.MustParse(c.Enode))
-	if err != nil {
-		log.WithField("err", err).Error("Unable to connect to client")
-		os.Exit(1)
-	}
-	if err := peer.Peer(mc.chain, nil); err != nil {
-		log.WithField("err", err).Error("Unable to peer with client")
-		os.Exit(1)
-	}
-	go peer.KeepAlive(log)
-
-	c.mockChain = mc
 	c.log = log
 	c.engine = client
-	c.peer = peer
+	c.db = db
 	c.ctx = ctx
 	c.close = make(chan struct{})
 
@@ -136,6 +127,68 @@ func (c *ConsensusCmd) ValidateTimestamp(timestamp uint64, slot uint64) error {
 	return nil
 }
 
+func (c *ConsensusCmd) proofOfWorkPrelogue(log logrus.Ext1FieldLogger) (transitionBlock uint64, err error) {
+
+	// Create a temporary chain around the db, with ethash consensus, to run through the POW part.
+	engine := ethash.New(c.ethashCfg, nil, false)
+
+	mc, err := NewMockChain(log, engine, c.GenesisPath, c.db, &c.TraceLogConfig)
+	if err != nil {
+		return 0, fmt.Errorf("unable to initialize mock chain: %v", err)
+	}
+
+	// Dial the peer to feed the POW blocks to
+	n, err := enode.Parse(enode.ValidSchemes, c.Enode)
+	if err != nil {
+		return 0, fmt.Errorf("malformatted enode address (%q): %v", c.Enode, err)
+	}
+	peer, err := p2p.Dial(n)
+	if err != nil {
+		return 0, fmt.Errorf("unable to connect to client: %v", err)
+	}
+	if err := peer.Peer(mc.chain, nil); err != nil {
+		return 0, fmt.Errorf("unable to peer with client: %v", err)
+	}
+	ctx, cancelPeer := context.WithCancel(c.ctx)
+	defer cancelPeer()
+
+	// keep peer connection alive until after the transition
+	go peer.KeepAlive(ctx, log)
+
+	defer mc.Close()
+	defer engine.Close()
+
+	// Send pre-transition blocks
+	for {
+		parent := mc.CurrentHeader()
+
+		if c.RNG.Float64() < c.Freq.ReorgFreq {
+			parent = c.calcReorgTarget(mc.chain, parent.Number.Uint64(), 0)
+		}
+
+		// build a block, without using the engine, and insert it into the engine
+		block, err := mc.MineBlock(parent)
+		if err != nil {
+			return 0, fmt.Errorf("failed to mine block: %v", err)
+		}
+
+		// announce block
+		newBlock := eth.NewBlockPacket{Block: block, TD: c.mockChain.CurrentTd()}
+		if err := peer.Write66(&newBlock, 23); err != nil {
+			return 0, fmt.Errorf("failed to msg peer: %v", err)
+		}
+
+		// check if terminal total difficulty is reached
+		ttd := new(big.Int).SetUint64(c.Ttd)
+		td := mc.CurrentTd()
+		log.WithField("td", td).WithField("ttd", ttd).Debug("Comparing TD to terminal TD")
+		if td.Cmp(ttd) >= 0 {
+			log.Info("Terminal total difficulty reached, transitioning to POS")
+			return mc.CurrentHeader().Number.Uint64(), nil
+		}
+	}
+}
+
 func (c *ConsensusCmd) RunNode() {
 	// TODO: simulate data since genesis
 
@@ -151,48 +204,24 @@ func (c *ConsensusCmd) RunNode() {
 	//slots.Reset(c.PastGenesis % c.SlotTime) // TODO
 	defer slots.Stop()
 
-	// Send pre-transition blocks
-	for {
-		parent := c.mockChain.CurrentHeader()
-
-		if c.RNG.Float64() < c.Freq.ReorgFreq {
-			parent = c.calcReorgTarget(parent.Number.Uint64(), 0)
-		}
-
-		// build a block, without using the engine, and insert it into the engine
-		block, err := c.mockChain.MineBlock(parent)
+	if c.Enode != "" {
+		var err error
+		nr, err := c.proofOfWorkPrelogue(c.log.WithField("transitioned", false))
 		if err != nil {
-			c.log.WithField("err", err).Error("Failed to mine block")
-			c.mockChain.Close()
+			c.log.WithField("err", err).Error("Failed to complete POW-prologue")
 			os.Exit(1)
 		}
-
-		// announce block
-		newBlock := eth.NewBlockPacket{Block: block, TD: c.mockChain.CurrentTd()}
-		if err := c.peer.Write66(&newBlock, 23); err != nil {
-			c.log.WithField("err", err).Error("Failed to msg peer")
-			os.Exit(1)
-		}
-
-		// check if terminal total difficulty is reached
-		ttd := new(big.Int).SetUint64(c.Ttd)
-		td := c.mockChain.CurrentTd()
-		c.log.WithField("td", td).WithField("ttd", ttd).Debug("Comparing TD to terminal TD")
-		if td.Cmp(ttd) >= 0 {
-			c.log.Info("Terminal total difficulty reached, transitioning to POS")
-			transitionBlock = c.mockChain.CurrentHeader().Number.Uint64()
-			break
-		}
+		transitionBlock = nr
+	} else {
+		c.log.Info("No peer, skipping pre-merge transition simulation, starting in POS mode")
 	}
 
-	c.engine.Close()
-	c.mockChain.Close()
-
-	engine := &ExecutionConsensusMock{
-		pow: ethash.New(c.ethashConfig, nil, false),
+	posEngine := &ExecutionConsensusMock{
+		pow: ethash.New(c.ethashCfg, nil, false),
 		log: c.log,
 	}
-	mc, err := NewMockChain(c.log, engine, c.GenesisPath, c.DataDir, &c.TraceLogConfig)
+
+	mc, err := NewMockChain(c.log, posEngine, c.GenesisPath, c.db, &c.TraceLogConfig)
 	if err != nil {
 		c.log.WithField("err", err).Error("Unable to initialize mock chain")
 		os.Exit(1)
@@ -234,7 +263,7 @@ func (c *ConsensusCmd) RunNode() {
 						min = num
 					}
 				}
-				parent = c.calcReorgTarget(parent.Number.Uint64(), min)
+				parent = c.calcReorgTarget(c.mockChain.chain, parent.Number.Uint64(), min)
 			}
 
 			slotLog := c.log.WithField("slot", slot)
@@ -261,9 +290,7 @@ func (c *ConsensusCmd) RunNode() {
 
 					coinbase := common.Address{0x13, 0x37}
 
-					go func() {
-						c.mockProposal(slotLog, finalizedHash, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
-					}()
+					go c.mockProposal(slotLog, finalizedHash, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
 				} else {
 					// build a block, without using the engine, and insert it into the engine
 					slotLog.Debug("Mocking external block")
@@ -284,19 +311,27 @@ func (c *ConsensusCmd) RunNode() {
 
 					slotLog.WithField("blockhash", block.Hash()).Debug("Built external block")
 
-					go func() {
-						c.mockExecution(slotLog, block)
+					go func(log logrus.Ext1FieldLogger, block *types.Block, final Bytes32) {
+						c.mockExecution(log, block)
 						latest := Bytes32(block.Hash())
-						final := Bytes32(finalizedHash)
+						// Note: head and safe hash are set to the same hash,
+						// until forkchoice updates are more attestation-weight aware.
 						ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, final, nil)
-					}()
+					}(slotLog, block, Bytes32(finalizedHash))
 				}
 			}
 
 		case <-c.close:
 			c.log.Info("Closing consensus mock node")
 			c.engine.Close()
-			c.mockChain.Close()
+
+			if err := c.mockChain.Close(); err != nil {
+				c.log.WithError(err).Error("Failed closing mock chain")
+			}
+
+			if err := c.db.Close(); err != nil {
+				c.log.WithError(err).Error("Failed closing database")
+			}
 		}
 	}
 }
@@ -401,10 +436,10 @@ func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *s
 	return []*types.Transaction{tx}
 }
 
-func (c *ConsensusCmd) calcReorgTarget(parent uint64, min uint64) *types.Header {
+func (c *ConsensusCmd) calcReorgTarget(chain *core.BlockChain, parent uint64, min uint64) *types.Header {
 	depth := c.RNG.Float64() * float64(c.ReorgMaxDepth)
 	target := uint64(math.Max(float64(parent)-depth, float64(min)))
-	return c.mockChain.chain.GetHeaderByNumber(target)
+	return chain.GetHeaderByNumber(target)
 }
 
 func (c *ConsensusCmd) Close() error {

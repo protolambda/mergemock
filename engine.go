@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -87,8 +85,17 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 	c.ctx = ctx
 	c.close = make(chan struct{})
 
-	engine := ethash.New(ethash.Config{PowMode: ethash.ModeFullFake}, nil, false)
-	chain, err := NewMockChain(logr, engine, c.GenesisPath, "", &c.TraceLogConfig)
+	posEngine := &ExecutionConsensusMock{
+		pow: nil, // TODO: do we even need this?
+		log: c.log,
+	}
+
+	db, err := NewDB(c.DataDir)
+	if err != nil {
+		logr.WithField("err", err).Error("Unable to open db")
+		os.Exit(1)
+	}
+	chain, err := NewMockChain(logr, posEngine, c.GenesisPath, db, &c.TraceLogConfig)
 	if err != nil {
 		logr.WithField("err", err).Error("Unable to initialize mock chain")
 		os.Exit(1)
@@ -228,12 +235,19 @@ func (e *EngineBackend) ExecutePayloadV1(ctx context.Context, payload *Execution
 }
 
 func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceState, attributes *PayloadAttributes) (*ForkchoiceUpdatedResult, error) {
-	e.log.WithField("forkchoice state", heads).Info("Forkchoice validated")
+	e.log.WithFields(logrus.Fields{
+		"head":       heads.HeadBlockHash,
+		"safe":       heads.SafeBlockHash,
+		"finalized":  heads.FinalizedBlockHash,
+		"attributes": attributes,
+	}).Info("Forkchoice updated")
 
 	if attributes == nil {
 		return nil, nil
 	}
-	id := atomic.AddUint64(&e.payloadIdCounter, 1)
+	idU64 := atomic.AddUint64(&e.payloadIdCounter, 1)
+	var id PayloadID
+	binary.BigEndian.PutUint64(id[:], idU64)
 
 	plog := e.log.WithField("payload_id", id)
 	plog.WithField("attributes", attributes).Info("Preparing new payload")
@@ -267,7 +281,5 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 
-	buf := make(hexutil.Bytes, 8)
-	binary.PutUvarint(buf, id)
-	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: buf}, nil
+	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: id}, nil
 }

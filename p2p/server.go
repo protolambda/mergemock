@@ -17,6 +17,7 @@
 package p2p
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"fmt"
 	"net"
@@ -215,10 +216,13 @@ func (c *Conn) Ping() error {
 	return err
 }
 
-func (c *Conn) KeepAlive(log *logrus.Logger) {
+func (c *Conn) KeepAlive(ctx context.Context, log logrus.Ext1FieldLogger) {
 	ticker := time.NewTicker(20 * time.Second)
 	for {
 		select {
+		case <-ctx.Done():
+			log.Info("closing keep-alive")
+			return
 		case <-ticker.C:
 			log.Trace("Pinging peer")
 			err := c.Ping()

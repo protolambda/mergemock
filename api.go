@@ -97,7 +97,23 @@ type Uint256Quantity = uint256.Int
 
 type Data = hexutil.Bytes
 
-type PayloadID = hexutil.Bytes
+type PayloadID [8]byte
+
+func (b *PayloadID) UnmarshalJSON(text []byte) error {
+	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
+}
+
+func (b *PayloadID) UnmarshalText(text []byte) error {
+	return hexutil.UnmarshalFixedText("PayloadID", text, b[:])
+}
+
+func (b PayloadID) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(b[:]).MarshalText()
+}
+
+func (b PayloadID) String() string {
+	return hexutil.Encode(b[:])
+}
 
 type ExecutionPayload struct {
 	ParentHash    common.Hash     `json:"parentHash"`

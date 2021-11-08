@@ -189,24 +189,18 @@ type MockChain struct {
 	traceOpts *TraceLogConfig
 }
 
-func NewMockChain(log logrus.Ext1FieldLogger, engine consensus.Engine, genesisPath string, dataDir string, traceOpts *TraceLogConfig) (*MockChain, error) {
+func NewDB(dataDir string) (ethdb.Database, error) {
+	if dataDir == "" {
+		return rawdb.NewMemoryDatabase(), nil
+	} else {
+		return rawdb.NewLevelDBDatabaseWithFreezer(dataDir, 128, 128, dataDir, "", false)
+	}
+}
+
+func NewMockChain(log logrus.Ext1FieldLogger, engine consensus.Engine, genesisPath string, db ethdb.Database, traceOpts *TraceLogConfig) (*MockChain, error) {
 	// Geth logs some things globally unfortunately.
 	// If we were using multiple mocks, we wouldn't know which one is logging what :(
 	gethlog.Root().SetHandler(&GethLogger{FieldLogger: log, Adjust: 0})
-
-	var (
-		db  ethdb.Database
-		err error
-	)
-
-	if dataDir == "" {
-		db = rawdb.NewMemoryDatabase()
-	} else {
-		db, err = rawdb.NewLevelDBDatabaseWithFreezer(dataDir, 128, 128, dataDir, "", false)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	genesis, err := LoadGenesisConfig(genesisPath)
 	if err != nil {
@@ -524,11 +518,7 @@ func (c *MockChain) Close() error {
 	if err != nil {
 		c.log.WithError(err).Error("Failed closing consensus engine")
 	}
-	err = c.database.Close()
-	if err != nil {
-		c.log.WithError(err).Error("Failed closing database")
-	}
-	// TODO: maybe clean up?
+	// mock-chain doesn't own the db, it's not closed here.
 	return nil
 }
 

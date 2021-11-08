@@ -142,7 +142,9 @@ func (c *ConsensusCmd) RunNode() {
 	var (
 		genesisTime     = time.Unix(int64(c.BeaconGenesisTime), 0)
 		slots           = time.NewTicker(c.SlotTime)
-		transitionBlock = &types.Header{}
+		transitionBlock = uint64(0)
+		finalizedHash   = common.Hash{}
+		nextFinalized   = common.Hash{}
 	)
 
 	// align ticker with genesis
@@ -178,7 +180,7 @@ func (c *ConsensusCmd) RunNode() {
 		c.log.WithField("td", td).WithField("ttd", ttd).Debug("Comparing TD to terminal TD")
 		if td.Cmp(ttd) >= 0 {
 			c.log.Info("Terminal total difficulty reached, transitioning to POS")
-			transitionBlock = c.mockChain.CurrentHeader()
+			transitionBlock = c.mockChain.CurrentHeader().Number.Uint64()
 			break
 		}
 	}
@@ -215,10 +217,24 @@ func (c *ConsensusCmd) RunNode() {
 			}
 			slot := uint64(signedSlot)
 
+			if slot%c.SlotsPerEpoch == 0 && slot != 0 {
+				last := finalizedHash
+				finalizedHash = nextFinalized
+				nextFinalized = c.mockChain.CurrentHeader().Hash()
+				c.log.WithField("slot", slot).WithField("last", last).WithField("new", finalizedHash).WithField("next", nextFinalized).Info("Finalized block updated")
+			}
+
 			// TODO: fake some forking by not always building on the latest payload
 			parent := c.mockChain.CurrentHeader()
 			if c.RNG.Float64() < c.Freq.ReorgFreq {
-				parent = c.calcReorgTarget(parent.Number.Uint64(), transitionBlock.Number.Uint64())
+				min := transitionBlock
+				if final := c.mockChain.chain.GetHeaderByHash(finalizedHash); final != nil {
+					num := final.Number.Uint64()
+					if min < num {
+						min = num
+					}
+				}
+				parent = c.calcReorgTarget(parent.Number.Uint64(), min)
 			}
 
 			slotLog := c.log.WithField("slot", slot)
@@ -246,7 +262,7 @@ func (c *ConsensusCmd) RunNode() {
 					coinbase := common.Address{0x13, 0x37}
 
 					go func() {
-						c.mockProposal(slotLog, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
+						c.mockProposal(slotLog, finalizedHash, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
 					}()
 				} else {
 					// build a block, without using the engine, and insert it into the engine
@@ -271,7 +287,8 @@ func (c *ConsensusCmd) RunNode() {
 					go func() {
 						c.mockExecution(slotLog, block)
 						latest := Bytes32(block.Hash())
-						ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, latest, nil)
+						final := Bytes32(finalizedHash)
+						ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, final, nil)
 					}()
 				}
 			}
@@ -284,8 +301,8 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) {
-	payload, err := c.mockPrep(log, parent, slot, random32, coinbase)
+func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, finalized, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) {
+	payload, err := c.mockPrep(log, finalized, parent, slot, random32, coinbase)
 	if err != nil {
 		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
 		return
@@ -323,7 +340,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, parent common.Ha
 	}
 }
 
-func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayload, error) {
+func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayload, error) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
 
@@ -333,7 +350,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, parent common.Hash, 
 		FeeRecipient: feeRecipient,
 	}
 	latest := Bytes32(parent)
-	res, err := ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, latest, &attributes)
+	res, err := ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, Bytes32(finalized), &attributes)
 	if err != nil {
 		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
 		return nil, err

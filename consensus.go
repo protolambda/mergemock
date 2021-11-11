@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"math"
 	"math/big"
 	"mergemock/p2p"
 	"os"
 	"time"
+
+	"github.com/ethereum/go-ethereum/ethdb"
 
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -173,7 +174,7 @@ func (c *ConsensusCmd) proofOfWorkPrelogue(log logrus.Ext1FieldLogger) (transiti
 		}
 
 		// announce block
-		newBlock := eth.NewBlockPacket{Block: block, TD: c.mockChain.CurrentTd()}
+		newBlock := eth.NewBlockPacket{Block: block, TD: mc.CurrentTd()}
 		if err := peer.Write66(&newBlock, 23); err != nil {
 			return 0, fmt.Errorf("failed to msg peer: %v", err)
 		}

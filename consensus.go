@@ -9,18 +9,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethdb"
-
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/eth/protocols/eth"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/eth/protocols/eth"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
@@ -129,7 +127,6 @@ func (c *ConsensusCmd) ValidateTimestamp(timestamp uint64, slot uint64) error {
 }
 
 func (c *ConsensusCmd) proofOfWorkPrelogue(log logrus.Ext1FieldLogger) (transitionBlock uint64, err error) {
-
 	// Create a temporary chain around the db, with ethash consensus, to run through the POW part.
 	engine := ethash.New(c.ethashCfg, nil, false)
 
@@ -304,7 +301,7 @@ func (c *ConsensusCmd) RunNode() {
 					uncleBlocks := []*types.Header{} // none in proof of stake
 					creator := TransactionsCreator(dummyTxCreator)
 
-					block, err = c.mockChain.AddNewBlock(parent.Hash(), coinbase, timestamp, gasLimit, creator, extraData, uncleBlocks, true)
+					block, err = c.mockChain.AddNewBlock(parent.Hash(), coinbase, timestamp, gasLimit, creator, [32]byte{}, extraData, uncleBlocks, true)
 					if err != nil {
 						slotLog.WithError(err).Errorf("Failed to add block")
 						continue
@@ -404,7 +401,7 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 	defer cancel()
 
 	// derive the random 32 bytes from the block hash for mocking ease
-	payload, err := BlockToPayload(block, mockRandomValue(block.Hash()))
+	payload, err := BlockToPayload(block)
 
 	if err != nil {
 		log.WithError(err).Error("Failed to convert execution block to execution payload")

@@ -243,7 +243,7 @@ func (c *MockChain) CurrentTd() *big.Int {
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
-func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64, gasLimit uint64, txsCreator TransactionsCreator, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
+func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address, timestamp uint64, gasLimit uint64, txsCreator TransactionsCreator, random Bytes32, extraData []byte, uncles []*types.Header, storeBlock bool) (*types.Block, error) {
 	parent := c.chain.GetHeaderByHash(parentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", parentHash)
@@ -261,6 +261,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 		GasLimit:   gasLimit,
 		Time:       timestamp,
 		Extra:      extraData,
+		MixDigest:  common.BytesToHash(random[:]),
 	}
 	if config.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent)
@@ -412,7 +413,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 		GasUsed:     0,                         // updated by processing
 		Time:        uint64(payload.Timestamp), // verified against slot
 		Extra:       payload.ExtraData,
-		MixDigest:   common.Hash{},                 // updated by sealing, if necessary
+		MixDigest:   common.BytesToHash(payload.Random[:]),
 		Nonce:       types.BlockNonce{},            // updated by sealing, if necessary
 		BaseFee:     payload.BaseFeePerGas.ToBig(), // verified by consensus engine (if necessary)
 	}
@@ -480,6 +481,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 		"gasUsed":          block.GasUsed(),
 		"timestamp":        block.Time(),
 		"extraData":        hex.EncodeToString(block.Extra()),
+		"random":           block.MixDigest(),
 	}).Info("computed block from payload")
 
 	if used := block.GasUsed(); used != uint64(payload.GasUsed) {
@@ -496,6 +498,10 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 
 	if block.Root() != common.Hash(payload.StateRoot) {
 		return nil, fmt.Errorf("state root difference: %s <> %s", stateRoot, payload.StateRoot)
+	}
+
+	if hash := block.Hash(); hash != payload.BlockHash {
+		return nil, fmt.Errorf("block hash difference: %s <> %s", hash, payload.BlockHash)
 	}
 
 	// Write state changes to db

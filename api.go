@@ -254,7 +254,7 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	}
 }
 
-func BlockToPayload(bl *types.Block, random Bytes32) (*ExecutionPayload, error) {
+func BlockToPayload(bl *types.Block) (*ExecutionPayload, error) {
 	extra := bl.Extra()
 	if len(extra) > 32 {
 		return nil, fmt.Errorf("eth2 merge spec limits extra data to 32 bytes in payload, got %d", len(extra))
@@ -278,7 +278,7 @@ func BlockToPayload(bl *types.Block, random Bytes32) (*ExecutionPayload, error) 
 		StateRoot:     Bytes32(bl.Root()),
 		ReceiptRoot:   Bytes32(bl.ReceiptHash()),
 		LogsBloom:     Bytes256(bl.Bloom()),
-		Random:        random,
+		Random:        Bytes32(bl.MixDigest()),
 		BlockNumber:   Uint64Quantity(bl.NumberU64()),
 		GasLimit:      Uint64Quantity(bl.GasLimit()),
 		GasUsed:       Uint64Quantity(bl.GasUsed()),

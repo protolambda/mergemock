@@ -263,7 +263,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	extraData := []byte{}
 
 	bl, err := e.mockChain.AddNewBlock(common.BytesToHash(heads.HeadBlockHash[:]), attributes.FeeRecipient, uint64(attributes.Timestamp),
-		gasLimit, txsCreator, extraData, nil, false)
+		gasLimit, txsCreator, attributes.Random, extraData, nil, false)
 
 	if err != nil {
 		// TODO: proper error codes
@@ -271,7 +271,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 		return nil, err
 	}
 
-	payload, err := BlockToPayload(bl, attributes.Random)
+	payload, err := BlockToPayload(bl)
 	if err != nil {
 		plog.WithError(err).Error("Failed to convert block to payload")
 		// TODO: proper error codes

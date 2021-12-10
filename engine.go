@@ -262,7 +262,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	})
 	extraData := []byte{}
 
-	bl, err := e.mockChain.AddNewBlock(common.BytesToHash(heads.HeadBlockHash[:]), attributes.FeeRecipient, uint64(attributes.Timestamp),
+	bl, err := e.mockChain.AddNewBlock(common.BytesToHash(heads.HeadBlockHash[:]), attributes.SuggestedFeeRecipient, uint64(attributes.Timestamp),
 		gasLimit, txsCreator, attributes.Random, extraData, nil, false)
 
 	if err != nil {

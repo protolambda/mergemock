@@ -380,7 +380,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent co
 	attributes := PayloadAttributes{
 		Timestamp:    Uint64Quantity(c.SlotTimestamp(slot)),
 		Random:       random,
-		FeeRecipient: feeRecipient,
+		SuggestedFeeRecipient: feeRecipient,
 	}
 	latest := Bytes32(parent)
 	res, err := ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, Bytes32(finalized), &attributes)

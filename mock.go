@@ -402,7 +402,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	header := &types.Header{
 		ParentHash:  parent.Hash(),
 		UncleHash:   common.Hash{}, // updated by sealing, if necessary
-		Coinbase:    payload.Coinbase,
+		Coinbase:    payload.FeeRecipient,
 		Root:        common.Hash{}, // state root verified after processing
 		TxHash:      common.Hash{}, // part of assembling
 		ReceiptHash: common.Hash{}, // receipt root verified after processing
@@ -488,8 +488,8 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 		return nil, fmt.Errorf("gas usage difference: %d <> %d", payload.GasUsed, header.GasUsed)
 	}
 
-	if receiptHash := block.ReceiptHash(); receiptHash != common.Hash(payload.ReceiptRoot) {
-		return nil, fmt.Errorf("receipt root difference: %s <> %s", receiptHash, payload.ReceiptRoot)
+	if receiptHash := block.ReceiptHash(); receiptHash != common.Hash(payload.ReceiptsRoot) {
+		return nil, fmt.Errorf("receipt root difference: %s <> %s", receiptHash, payload.ReceiptsRoot)
 	}
 
 	if bloom := block.Bloom(); Bytes256(bloom) != payload.LogsBloom {

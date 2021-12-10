@@ -117,9 +117,9 @@ func (b PayloadID) String() string {
 
 type ExecutionPayload struct {
 	ParentHash    common.Hash     `json:"parentHash"`
-	FeeRecipient      common.Address  `json:"feeRecipient"`
+	FeeRecipient  common.Address  `json:"feeRecipient"`
 	StateRoot     Bytes32         `json:"stateRoot"`
-	ReceiptsRoot   Bytes32         `json:"receiptsRoot"`
+	ReceiptsRoot  Bytes32         `json:"receiptsRoot"`
 	LogsBloom     Bytes256        `json:"logsBloom"`
 	Random        Bytes32         `json:"random"`
 	BlockNumber   Uint64Quantity  `json:"blockNumber"`
@@ -274,9 +274,9 @@ func BlockToPayload(bl *types.Block) (*ExecutionPayload, error) {
 	}
 	return &ExecutionPayload{
 		ParentHash:    bl.ParentHash(),
-		FeeRecipient:      bl.Coinbase(),
+		FeeRecipient:  bl.Coinbase(),
 		StateRoot:     Bytes32(bl.Root()),
-		ReceiptsRoot:   Bytes32(bl.ReceiptHash()),
+		ReceiptsRoot:  Bytes32(bl.ReceiptHash()),
 		LogsBloom:     Bytes256(bl.Bloom()),
 		Random:        Bytes32(bl.MixDigest()),
 		BlockNumber:   Uint64Quantity(bl.NumberU64()),

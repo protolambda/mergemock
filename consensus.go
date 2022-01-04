@@ -296,7 +296,7 @@ func (c *ConsensusCmd) RunNode() {
 					// TODO: different proposers, gas limit (target in london) changes, etc.
 					coinbase := common.Address{1}
 					timestamp := c.SlotTimestamp(slot)
-					gasLimit := c.mockChain.gspec.GasLimit
+					gasLimit := parent.GasLimit
 					extraData := []byte("proto says hi")
 					uncleBlocks := []*types.Header{} // none in proof of stake
 					creator := TransactionsCreator(dummyTxCreator)

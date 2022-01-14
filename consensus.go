@@ -38,6 +38,7 @@ type ConsensusCmd struct {
 	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
 	JwtSecretPath string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
 	Enode         string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
+	TestRuns      uint64 `ask:"--test-runs" help:"The amount of blocks to produce in a CI run"`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -254,6 +255,11 @@ func (c *ConsensusCmd) RunNode() {
 				continue
 			}
 			slot := uint64(signedSlot)
+			if c.TestRuns > 0 && slot > c.TestRuns {
+				c.log.WithField("testRuns", c.TestRuns).Info("All test runs successfully completed")
+				os.Exit(0)
+			}
+
 			if slot%c.SlotsPerEpoch == 0 {
 				last := finalizedHash
 				finalizedHash = nextFinalized
@@ -382,10 +388,16 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
 	if err != nil {
 		log.WithError(err).Error("Failed to get payload")
+		if c.TestRuns > 0 {
+			os.Exit(1)
+		}
 		return
 	}
 	if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
 		log.WithError(err).Error("Payload has bad timestamp")
+		if c.TestRuns > 0 {
+			os.Exit(1)
+		}
 		return
 	}
 	if consensusFail {

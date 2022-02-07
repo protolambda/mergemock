@@ -314,7 +314,7 @@ func (c *ConsensusCmd) RunNode() {
 						latest := Bytes32(block.Hash())
 						// Note: head and safe hash are set to the same hash,
 						// until forkchoice updates are more attestation-weight aware.
-						ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, final, nil)
+						ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, latest, final, nil)
 					}(slotLog, block, Bytes32(finalizedHash))
 				}
 			}
@@ -360,7 +360,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, finalized, paren
 		// send it back to execution layer for execution
 		ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 		defer cancel()
-		res, err := ExecutePayload(ctx, c.engine, log, payload)
+		res, err := NewPayloadV1(ctx, c.engine, log, payload)
 		if err != nil {
 			log.WithError(err).Error("Failed to execute payload")
 		} else if res.Status == ExecutionValid {
@@ -383,7 +383,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent co
 		SuggestedFeeRecipient: feeRecipient,
 	}
 	latest := Bytes32(parent)
-	res, err := ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, Bytes32(finalized), &attributes)
+	res, err := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, latest, Bytes32(finalized), &attributes)
 	if err != nil {
 		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
 		return nil, err
@@ -393,7 +393,7 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent co
 		return nil, fmt.Errorf("execution client syncing")
 	}
 
-	return GetPayload(ctx, c.engine, log, res.PayloadID)
+	return GetPayloadV1(ctx, c.engine, log, res.PayloadID)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {
@@ -408,7 +408,7 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 		return
 	}
 
-	ExecutePayload(ctx, c.engine, log, payload)
+	NewPayloadV1(ctx, c.engine, log, payload)
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {

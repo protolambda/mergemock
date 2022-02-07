@@ -115,7 +115,7 @@ func (b PayloadID) String() string {
 	return hexutil.Encode(b[:])
 }
 
-type ExecutionPayload struct {
+type ExecutionPayloadV1 struct {
 	ParentHash    common.Hash     `json:"parentHash"`
 	FeeRecipient  common.Address  `json:"feeRecipient"`
 	StateRoot     Bytes32         `json:"stateRoot"`
@@ -134,7 +134,7 @@ type ExecutionPayload struct {
 	Transactions []Data `json:"transactions"`
 }
 
-type PayloadAttributes struct {
+type PayloadAttributesV1 struct {
 	// value for the timestamp field of the new payload
 	Timestamp Uint64Quantity `json:"timestamp"`
 	// value for the random field of the new payload
@@ -154,16 +154,16 @@ const (
 	ExecutionSyncing ExecutePayloadStatus = "SYNCING"
 )
 
-type ExecutePayloadResult struct {
+type PayloadStatusV1 struct {
 	// the result of the payload execution
 	Status ExecutePayloadStatus `json:"status"`
 	// the hash of the most recent valid block in the branch defined by payload and its ancestors
 	LatestValidHash Bytes32 `json:"latestValidHash"`
 	// additional details on the result
-	Message string `json:"message"`
+	ValidationError string `json:"validationError"`
 }
 
-type ForkchoiceState struct {
+type ForkchoiceStateV1 struct {
 	// block hash of the head of the canonical chain
 	HeadBlockHash Bytes32 `json:"headBlockHash"`
 	// safe block hash in the canonical chain
@@ -189,11 +189,11 @@ type ForkchoiceUpdatedResult struct {
 }
 
 func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	payloadId PayloadID) (*ExecutionPayload, error) {
+	payloadId PayloadID) (*ExecutionPayloadV1, error) {
 
 	e := log.WithField("payload_id", payloadId)
 	e.Debug("getting payload")
-	var result ExecutionPayload
+	var result ExecutionPayloadV1
 	err := cl.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
 	if err != nil {
 		e = e.WithError(err)
@@ -214,22 +214,22 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
 }
 
 func ExecutePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+	payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
 
 	e := log.WithField("block_hash", payload.BlockHash)
 	e.Debug("sending payload for execution")
-	var result ExecutePayloadResult
+	var result PayloadStatusV1
 	err := cl.CallContext(ctx, &result, "engine_executePayloadV1", payload)
 	if err != nil {
 		e.WithError(err).Error("Payload execution failed")
 		return nil, err
 	}
-	e.WithField("status", result.Status).WithField("latestValidHash", result.LatestValidHash).WithField("message", result.Message).Debug("Received payload execution result")
+	e.WithField("status", result.Status).WithField("latestValidHash", result.LatestValidHash).WithField("validationErro", result.ValidationError).Debug("Received payload execution result")
 	return &result, nil
 }
 
-func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
-	heads := &ForkchoiceState{HeadBlockHash: head, SafeBlockHash: safe, FinalizedBlockHash: finalized}
+func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributesV1) (ForkchoiceUpdatedResult, error) {
+	heads := &ForkchoiceStateV1{HeadBlockHash: head, SafeBlockHash: safe, FinalizedBlockHash: finalized}
 
 	e := log.WithField("head", head).WithField("safe", safe).WithField("finalized", finalized).WithField("payload", payload)
 	e.Debug("Sharing forkchoice-updated signal")
@@ -254,7 +254,7 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	}
 }
 
-func BlockToPayload(bl *types.Block) (*ExecutionPayload, error) {
+func BlockToPayload(bl *types.Block) (*ExecutionPayloadV1, error) {
 	extra := bl.Extra()
 	if len(extra) > 32 {
 		return nil, fmt.Errorf("eth2 merge spec limits extra data to 32 bytes in payload, got %d", len(extra))
@@ -272,7 +272,7 @@ func BlockToPayload(bl *types.Block) (*ExecutionPayload, error) {
 		}
 		txsEncoded = append(txsEncoded, txOpaque)
 	}
-	return &ExecutionPayload{
+	return &ExecutionPayloadV1{
 		ParentHash:    bl.ParentHash(),
 		FeeRecipient:  bl.Coinbase(),
 		StateRoot:     Bytes32(bl.Root()),

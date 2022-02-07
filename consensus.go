@@ -373,11 +373,11 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, finalized, paren
 	}
 }
 
-func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayload, error) {
+func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayloadV1, error) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
 
-	attributes := PayloadAttributes{
+	attributes := PayloadAttributesV1{
 		Timestamp:             Uint64Quantity(c.SlotTimestamp(slot)),
 		Random:                random,
 		SuggestedFeeRecipient: feeRecipient,

@@ -389,7 +389,7 @@ func (c *MockChain) MineBlock(parent *types.Header) (*types.Block, error) {
 	return block, nil
 }
 
-func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, error) {
+func (c *MockChain) ProcessPayload(payload *ExecutionPayloadV1) (*types.Block, error) {
 	parent := c.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", payload.ParentHash)

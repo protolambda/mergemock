@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"reflect"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -134,6 +135,31 @@ type ExecutionPayloadV1 struct {
 	Transactions []Data `json:"transactions"`
 }
 
+func (p *ExecutionPayloadV1) ValidateRoot() bool {
+	header := &types.Header{
+		ParentHash:  p.ParentHash,
+		UncleHash:   common.Hash{},
+		Coinbase:    p.FeeRecipient,
+		Root:        common.Hash(p.StateRoot),
+		TxHash:      common.Hash{},
+		ReceiptHash: common.Hash(p.ReceiptsRoot),
+		Bloom:       types.Bloom(p.LogsBloom),
+		Difficulty:  common.Big0,
+		Number:      big.NewInt(int64(uint64(p.BlockNumber))),
+		GasLimit:    uint64(p.GasLimit),
+		GasUsed:     0,
+		Time:        uint64(p.Timestamp),
+		Extra:       p.ExtraData,
+		MixDigest:   common.BytesToHash(p.Random[:]),
+		Nonce:       types.BlockNonce{},
+		BaseFee:     p.BaseFeePerGas.ToBig(),
+	}
+	if header.Hash() != common.Hash(p.BlockHash) {
+		return false
+	}
+	return true
+}
+
 type PayloadAttributesV1 struct {
 	// value for the timestamp field of the new payload
 	Timestamp Uint64Quantity `json:"timestamp"`
@@ -152,6 +178,10 @@ const (
 	ExecutionInvalid ExecutePayloadStatus = "INVALID"
 	// sync process is in progress
 	ExecutionSyncing ExecutePayloadStatus = "SYNCING"
+	// payload didn't exetend canonical chain, and therefore wasn't executed
+	ExecutionAccepted ExecutePayloadStatus = "ACCEPTED"
+	// payload did not match provided block hash
+	ExecutionInvalidBlockHash ExecutePayloadStatus = "ACCEPTED"
 )
 
 type PayloadStatusV1 struct {
@@ -213,9 +243,8 @@ func GetPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogge
 
 func NewPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
 	e := log.WithField("block_hash", payload.BlockHash)
-	e.Debug("sending payload for execution")
 	var result PayloadStatusV1
-	err := cl.CallContext(ctx, &result, "engine_executePayloadV1", payload)
+	err := cl.CallContext(ctx, &result, "engine_newPayloadV1", payload)
 	if err != nil {
 		e.WithError(err).Error("Payload execution failed")
 		return nil, err

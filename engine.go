@@ -215,8 +215,11 @@ func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*Execut
 	return payload.(*ExecutionPayloadV1), nil
 }
 
-func (e *EngineBackend) ExecutePayloadV1(ctx context.Context, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
+func (e *EngineBackend) NewPayloadV1(ctx context.Context, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
+	if !payload.ValidateRoot() {
+		return &PayloadStatusV1{Status: ExecutionInvalidBlockHash}, nil
+	}
 	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Cannot execute payload, parent is unknown")

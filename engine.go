@@ -223,8 +223,10 @@ func (e *EngineBackend) NewPayloadV1(ctx context.Context, payload *ExecutionPayl
 	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Cannot execute payload, parent is unknown")
-		// TODO
 		return &PayloadStatusV1{Status: ExecutionSyncing}, nil
+	} else if parent.Difficulty.Cmp(e.mockChain.gspec.Config.TerminalTotalDifficulty) < 0 {
+		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Parent block not yet at TTD")
+		return &PayloadStatusV1{Status: ExecutionInvalidTerminalBlock}, nil
 	}
 
 	_, err := e.mockChain.ProcessPayload(payload)

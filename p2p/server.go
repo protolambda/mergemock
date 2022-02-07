@@ -163,7 +163,8 @@ loop:
 				return nil, fmt.Errorf("wrong head block in status, want:  %#x (block %d) have %#x",
 					want, chain.CurrentHeader().Number.Uint64(), have)
 			}
-			if have, want := msg.TD.Cmp(chain.GetTdByHash(chain.CurrentHeader().Hash())), 0; have != want {
+			head := chain.CurrentHeader()
+			if have, want := msg.TD.Cmp(chain.GetTd(head.Hash(), head.Number.Uint64())), 0; have != want {
 				return nil, fmt.Errorf("wrong TD in status: have %v want %v", have, want)
 			}
 			/*
@@ -196,10 +197,11 @@ loop:
 	}
 	if status == nil {
 		// default status message
+		head := chain.CurrentHeader()
 		status = &eth.StatusPacket{
 			ProtocolVersion: uint32(c.negotiatedProtoVersion),
 			NetworkID:       chain.Config().ChainID.Uint64(),
-			TD:              chain.GetTdByHash(chain.CurrentHeader().Hash()),
+			TD:              chain.GetTd(head.Hash(), head.Number.Uint64()),
 			Head:            chain.CurrentHeader().Hash(),
 			Genesis:         chain.Genesis().Hash(),
 			ForkID:          forkid.NewID(chain.Config(), chain.Genesis().Hash(), chain.CurrentHeader().Number.Uint64()),

@@ -182,6 +182,8 @@ const (
 	ExecutionAccepted ExecutePayloadStatus = "ACCEPTED"
 	// payload did not match provided block hash
 	ExecutionInvalidBlockHash ExecutePayloadStatus = "ACCEPTED"
+	// payload is built on parent block that does not meet ttd
+	ExecutionInvalidTerminalBlock ExecutePayloadStatus = "INVALID_TERMINAL_BLOCK"
 )
 
 type PayloadStatusV1 struct {

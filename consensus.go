@@ -392,8 +392,12 @@ func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent co
 		log.Warn("Failed to prepare and get payload, execution client syncing")
 		return nil, fmt.Errorf("execution client syncing")
 	}
+	if res.PayloadID == nil {
+		log.Error("Failed to prepare and get payload, payload id is nil")
+		return nil, fmt.Errorf("payload id not set")
+	}
 
-	return GetPayloadV1(ctx, c.engine, log, res.PayloadID)
+	return GetPayloadV1(ctx, c.engine, log, *res.PayloadID)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {

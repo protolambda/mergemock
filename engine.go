@@ -286,5 +286,5 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 
-	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: id}, nil
+	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: &id}, nil
 }

@@ -217,7 +217,7 @@ type ForkchoiceUpdatedResult struct {
 	// the result of the payload execution
 	Status ForkchoiceUpdatedStatus `json:"status"`
 	// the payload id if requested
-	PayloadID PayloadID `json:"payloadId"`
+	PayloadID *PayloadID `json:"payloadId"`
 }
 
 func GetPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {

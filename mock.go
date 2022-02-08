@@ -328,7 +328,6 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
 func (c *MockChain) MineBlock(parent *types.Header) (*types.Block, error) {
-
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     new(big.Int).Add(parent.Number, common.Big1),

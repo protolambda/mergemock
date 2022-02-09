@@ -217,7 +217,7 @@ func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*Execut
 
 func (e *EngineBackend) NewPayloadV1(ctx context.Context, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
-	if !payload.ValidateRoot() {
+	if !payload.ValidateHash() {
 		return &PayloadStatusV1{Status: ExecutionInvalidBlockHash}, nil
 	}
 	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)

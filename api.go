@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/holiman/uint256"
@@ -135,23 +136,26 @@ type ExecutionPayloadV1 struct {
 	Transactions []Data `json:"transactions"`
 }
 
-func (p *ExecutionPayloadV1) ValidateRoot() bool {
+func (p *ExecutionPayloadV1) ValidateHash() bool {
+	txs, err := decodeTransactions(p.Transactions)
+	if err != nil {
+		return false
+	}
 	header := &types.Header{
 		ParentHash:  p.ParentHash,
-		UncleHash:   common.Hash{},
+		UncleHash:   types.EmptyUncleHash,
 		Coinbase:    p.FeeRecipient,
 		Root:        common.Hash(p.StateRoot),
-		TxHash:      common.Hash{},
+		TxHash:      types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil)),
 		ReceiptHash: common.Hash(p.ReceiptsRoot),
 		Bloom:       types.Bloom(p.LogsBloom),
 		Difficulty:  common.Big0,
-		Number:      big.NewInt(int64(uint64(p.BlockNumber))),
+		Number:      new(big.Int).SetInt64(int64(p.BlockNumber)),
 		GasLimit:    uint64(p.GasLimit),
-		GasUsed:     0,
+		GasUsed:     uint64(p.GasUsed),
 		Time:        uint64(p.Timestamp),
 		Extra:       p.ExtraData,
-		MixDigest:   common.BytesToHash(p.Random[:]),
-		Nonce:       types.BlockNonce{},
+		MixDigest:   common.Hash(p.Random),
 		BaseFee:     p.BaseFeePerGas.ToBig(),
 	}
 	if header.Hash() != common.Hash(p.BlockHash) {
@@ -242,7 +246,7 @@ func NewPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogge
 		e.WithError(err).Error("Payload execution failed")
 		return nil, err
 	}
-	e.WithField("status", result.Status).WithField("latestValidHash", result.LatestValidHash).WithField("validationErro", result.ValidationError).Debug("Received payload execution result")
+	e.WithField("status", result.Status).WithField("latestValidHash", result.LatestValidHash).WithField("validationError", result.ValidationError).Debug("Received payload execution result")
 	return &result, nil
 }
 
@@ -306,4 +310,16 @@ func BlockToPayload(bl *types.Block) (*ExecutionPayloadV1, error) {
 		BlockHash:     bl.Hash(),
 		Transactions:  txsEncoded,
 	}, nil
+}
+
+func decodeTransactions(enc []Data) ([]*types.Transaction, error) {
+	var txs = make([]*types.Transaction, len(enc))
+	for i, encTx := range enc {
+		var tx types.Transaction
+		if err := tx.UnmarshalBinary(encTx); err != nil {
+			return nil, fmt.Errorf("invalid transaction %d: %v", i, err)
+		}
+		txs[i] = &tx
+	}
+	return txs, nil
 }

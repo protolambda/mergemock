@@ -313,6 +313,9 @@ func (c *ConsensusCmd) RunNode() {
 					payload = c.makePayloadAttributes(slot + 1)
 				}
 				result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, final, final, payload)
+				if result.Status.Status != ExecutionValid {
+					log.WithField("status", result.Status).Error("Update not considered valid")
+				}
 				if result.PayloadID != nil {
 					payloadId <- *result.PayloadID
 				}

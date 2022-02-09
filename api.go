@@ -190,7 +190,7 @@ type PayloadStatusV1 struct {
 	// the result of the payload execution
 	Status ExecutePayloadStatus `json:"status"`
 	// the hash of the most recent valid block in the branch defined by payload and its ancestors
-	LatestValidHash Bytes32 `json:"latestValidHash"`
+	LatestValidHash *Bytes32 `json:"latestValidHash"`
 	// additional details on the result
 	ValidationError string `json:"validationError"`
 }
@@ -204,18 +204,9 @@ type ForkchoiceStateV1 struct {
 	FinalizedBlockHash Bytes32 `json:"finalizedBlockHash"`
 }
 
-type ForkchoiceUpdatedStatus string
-
-const (
-	// given payload is valid
-	UpdateSuccess ForkchoiceUpdatedStatus = "SUCCESS"
-	// sync process is in progress
-	UpdateSyncing ForkchoiceUpdatedStatus = "SYNCING"
-)
-
 type ForkchoiceUpdatedResult struct {
 	// the result of the payload execution
-	Status ForkchoiceUpdatedStatus `json:"status"`
+	Status PayloadStatusV1 `json:"payloadStatus"`
 	// the payload id if requested
 	PayloadID *PayloadID `json:"payloadId"`
 }
@@ -266,7 +257,7 @@ func ForkchoiceUpdatedV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1Fie
 	if err == nil {
 		e.Debug("Shared forkchoice-updated signal")
 		if payload != nil {
-			e.WithField("payloadId", result.PayloadID).Debug("Received payload id")
+			e.WithField("payloadId", result.PayloadID).WithField("status", result.Status).Debug("Received payload id")
 		}
 		return result, nil
 	} else {

@@ -181,7 +181,7 @@ const (
 	// payload didn't exetend canonical chain, and therefore wasn't executed
 	ExecutionAccepted ExecutePayloadStatus = "ACCEPTED"
 	// payload did not match provided block hash
-	ExecutionInvalidBlockHash ExecutePayloadStatus = "ACCEPTED"
+	ExecutionInvalidBlockHash ExecutePayloadStatus = "INVALID_BLOCK_HASH"
 	// payload is built on parent block that does not meet ttd
 	ExecutionInvalidTerminalBlock ExecutePayloadStatus = "INVALID_TERMINAL_BLOCK"
 )

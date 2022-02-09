@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
 
@@ -254,6 +255,30 @@ func (c *ConsensusCmd) RunNode() {
 				case <-payloadId:
 				default:
 				}
+				continue
+			}
+
+			// Send bad hash
+			if c.RNG.Float64() < c.Freq.InvalidHashFreq {
+				c.log.Info("Sending payload with invalid hash")
+				baseFee, _ := uint256.FromBig(c.mockChain.CurrentHeader().BaseFee)
+				payload := &ExecutionPayloadV1{
+					ParentHash:    c.mockChain.CurrentHeader().Hash(),
+					FeeRecipient:  common.Address{},
+					StateRoot:     Bytes32{},
+					ReceiptsRoot:  Bytes32{},
+					LogsBloom:     Bytes256{},
+					Random:        Bytes32{},
+					BlockNumber:   Uint64Quantity(c.mockChain.CurrentHeader().Number.Uint64()),
+					GasLimit:      Uint64Quantity(c.mockChain.CurrentHeader().GasLimit),
+					GasUsed:       Uint64Quantity(0),
+					Timestamp:     Uint64Quantity(c.mockChain.CurrentHeader().Time + 1),
+					ExtraData:     BytesMax32{},
+					BaseFeePerGas: Uint256Quantity(*baseFee),
+					BlockHash:     common.HexToHash("0xdeadbeef"),
+					Transactions:  []Data{},
+				}
+				go NewPayloadV1(c.ctx, c.engine, c.log, payload)
 				continue
 			}
 

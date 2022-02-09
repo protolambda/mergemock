@@ -194,6 +194,7 @@ func (c *ConsensusCmd) RunNode() {
 		slots           = time.NewTicker(c.SlotTime)
 		transitionBlock = uint64(0)
 		finalizedHash   = common.Hash{}
+		safeHash        = common.Hash{}
 		nextFinalized   = common.Hash{}
 		posEngine       = &ExecutionConsensusMock{
 			pow: ethash.New(c.ethashCfg, nil, false),
@@ -237,12 +238,14 @@ func (c *ConsensusCmd) RunNode() {
 			}
 			if signedSlot == 0 {
 				c.log.WithField("slot", 0).Info("Genesis!")
+				safeHash = c.mockChain.CurrentHeader().Hash()
 				continue
 			}
 			slot := uint64(signedSlot)
 			if slot%c.SlotsPerEpoch == 0 {
 				last := finalizedHash
 				finalizedHash = nextFinalized
+				safeHash = finalizedHash
 				nextFinalized = c.mockChain.CurrentHeader().Hash()
 				c.log.WithField("slot", slot).WithField("last", last).WithField("new", finalizedHash).WithField("next", nextFinalized).Info("Finalized block updated")
 			}
@@ -327,7 +330,7 @@ func (c *ConsensusCmd) RunNode() {
 
 			slotLog.WithField("blockhash", block.Hash()).Debug("Built external block")
 
-			go func(log logrus.Ext1FieldLogger, block *types.Block, final Bytes32) {
+			go func(log logrus.Ext1FieldLogger, block *types.Block, safe, final Bytes32) {
 				c.mockExecution(log, block)
 				latest := Bytes32(block.Hash())
 				// Note: head and safe hash are set to the same hash,
@@ -337,14 +340,14 @@ func (c *ConsensusCmd) RunNode() {
 					// proposing next slot!
 					payload = c.makePayloadAttributes(slot + 1)
 				}
-				result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, final, final, payload)
+				result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, payload)
 				if result.Status.Status != ExecutionValid {
 					log.WithField("status", result.Status).Error("Update not considered valid")
 				}
 				if result.PayloadID != nil {
 					payloadId <- *result.PayloadID
 				}
-			}(slotLog, block, Bytes32(finalizedHash))
+			}(slotLog, block, Bytes32(safeHash), Bytes32(finalizedHash))
 
 		case <-c.close:
 			c.log.Info("Closing consensus mock node")

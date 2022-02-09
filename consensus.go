@@ -261,14 +261,13 @@ func (c *ConsensusCmd) RunNode() {
 			parent := c.mockChain.CurrentHeader()
 			if c.RNG.Float64() < c.Freq.ReorgFreq {
 				min := transitionBlock
-				fmt.Println(min)
-				// if final := c.mockChain.chain.GetHeaderByHash(finalizedHash); final != nil {
-				//         num := final.Number.Uint64()
-				//         if min < num {
-				//                 min = num
-				//         }
-				// }
-				// parent = c.calcReorgTarget(c.mockChain.chain, parent.Number.Uint64(), min)
+				if final := c.mockChain.chain.GetHeaderByHash(finalizedHash); final != nil {
+					num := final.Number.Uint64()
+					if min < num {
+						min = num
+					}
+				}
+				parent = c.calcReorgTarget(c.mockChain.chain, parent.Number.Uint64(), min)
 			}
 
 			slotLog := c.log.WithField("slot", slot)
@@ -313,7 +312,7 @@ func (c *ConsensusCmd) RunNode() {
 					// proposing next slot!
 					payload = c.makePayloadAttributes(slot + 1)
 				}
-				result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, latest, final, payload)
+				result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, final, final, payload)
 				if result.PayloadID != nil {
 					payloadId <- *result.PayloadID
 				}

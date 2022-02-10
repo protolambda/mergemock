@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/ethdb"
 	gethlog "github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
@@ -239,7 +240,7 @@ func (c *MockChain) CurrentHeader() *types.Header {
 }
 
 func (c *MockChain) CurrentTd() *big.Int {
-	return c.chain.GetTdByHash(c.Head())
+	return c.chain.GetTd(c.Head(), c.CurrentHeader().Number.Uint64())
 }
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
@@ -273,7 +274,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 
 	receipts := make([]*types.Receipt, 0)
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
-	stl := vm.NewStructLogger(&vm.LogConfig{
+	stl := logger.NewStructLogger(&logger.Config{
 		EnableMemory:     c.traceOpts.EnableMemory,
 		DisableStack:     c.traceOpts.DisableStack,
 		DisableStorage:   c.traceOpts.DisableStorage,
@@ -298,7 +299,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	}
 	if c.traceOpts.EnableTrace {
 		var buf bytes.Buffer
-		vm.WriteTrace(&buf, stl.StructLogs())
+		logger.WriteTrace(&buf, stl.StructLogs())
 		c.log.Info("trace:\n" + string(buf.Bytes()))
 	}
 
@@ -327,7 +328,6 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 
 // Custom block builder, to change more things, fake time more easily, deal with difficulty etc.
 func (c *MockChain) MineBlock(parent *types.Header) (*types.Block, error) {
-
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     new(big.Int).Add(parent.Number, common.Big1),
@@ -389,7 +389,7 @@ func (c *MockChain) MineBlock(parent *types.Header) (*types.Block, error) {
 	return block, nil
 }
 
-func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, error) {
+func (c *MockChain) ProcessPayload(payload *ExecutionPayloadV1) (*types.Block, error) {
 	parent := c.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", payload.ParentHash)
@@ -426,7 +426,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	}
 	receipts := make([]*types.Receipt, 0)
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
-	stl := vm.NewStructLogger(&vm.LogConfig{
+	stl := logger.NewStructLogger(&logger.Config{
 		EnableMemory:     c.traceOpts.EnableMemory,
 		DisableStack:     c.traceOpts.DisableStack,
 		DisableStorage:   c.traceOpts.DisableStorage,
@@ -456,7 +456,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayload) (*types.Block, err
 	}
 	if c.traceOpts.EnableTrace {
 		var buf bytes.Buffer
-		vm.WriteTrace(&buf, stl.StructLogs())
+		logger.WriteTrace(&buf, stl.StructLogs())
 		c.log.Info("trace:\n" + string(buf.Bytes()))
 	}
 

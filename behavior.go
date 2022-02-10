@@ -37,6 +37,7 @@ type ConsensusBehavior struct {
 		FailedProposalFreq float64 `ask:"--ignore" help:"How often the payload produced by the engine does not become canonical"`
 		Finality           float64 `ask:"--finality" help:"How often an epoch succeeds to finalize"`
 		ReorgFreq          float64 `ask:"--reorg" help:"Frequency of chain reorgs"`
+		InvalidHashFreq    float64 `ask:"--invalid-hash" help:"Frequency of invalid payload hashes"`
 		// TODO more fun
 	} `ask:".freq" help:"Modify frequencies of certain behavior"`
 	ReorgMaxDepth uint64 `ask:"--reorg-max-depth" help:"Max depth of a chain reorg"`
@@ -50,4 +51,5 @@ func (b *ConsensusBehavior) Default() {
 	b.Freq.Finality = 0.1
 	b.ReorgMaxDepth = 64
 	b.Freq.ReorgFreq = 0.05
+	b.Freq.InvalidHashFreq = 0.01
 }

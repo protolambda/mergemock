@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
 
@@ -188,20 +189,22 @@ func (c *ConsensusCmd) proofOfWorkPrelogue(log logrus.Ext1FieldLogger) (transiti
 }
 
 func (c *ConsensusCmd) RunNode() {
-	// TODO: simulate data since genesis
-
 	var (
 		genesisTime     = time.Unix(int64(c.BeaconGenesisTime), 0)
 		slots           = time.NewTicker(c.SlotTime)
 		transitionBlock = uint64(0)
 		finalizedHash   = common.Hash{}
+		safeHash        = common.Hash{}
 		nextFinalized   = common.Hash{}
+		posEngine       = &ExecutionConsensusMock{
+			pow: ethash.New(c.ethashCfg, nil, false),
+			log: c.log,
+		}
+		payloadId = make(chan PayloadID)
 	)
-
-	// align ticker with genesis
-	//slots.Reset(c.PastGenesis % c.SlotTime) // TODO
 	defer slots.Stop()
 
+	// Run PoW prelouge if peered with client
 	if c.Enode != "" {
 		var err error
 		nr, err := c.proofOfWorkPrelogue(c.log.WithField("transitioned", false))
@@ -214,11 +217,7 @@ func (c *ConsensusCmd) RunNode() {
 		c.log.Info("No peer, skipping pre-merge transition simulation, starting in POS mode")
 	}
 
-	posEngine := &ExecutionConsensusMock{
-		pow: ethash.New(c.ethashCfg, nil, false),
-		log: c.log,
-	}
-
+	// Initialize mock chain with existing db
 	mc, err := NewMockChain(c.log, posEngine, c.GenesisPath, c.db, &c.TraceLogConfig)
 	if err != nil {
 		c.log.WithField("err", err).Error("Unable to initialize mock chain")
@@ -229,7 +228,6 @@ func (c *ConsensusCmd) RunNode() {
 	for {
 		select {
 		case tick := <-slots.C:
-			// 52 bits is plenty
 			signedSlot := int64(math.Round(float64(tick.Sub(genesisTime)) / float64(c.SlotTime)))
 			if signedSlot < 0 {
 				// before genesis...
@@ -240,18 +238,54 @@ func (c *ConsensusCmd) RunNode() {
 			}
 			if signedSlot == 0 {
 				c.log.WithField("slot", 0).Info("Genesis!")
+				safeHash = c.mockChain.CurrentHeader().Hash()
 				continue
 			}
 			slot := uint64(signedSlot)
-
-			if slot%c.SlotsPerEpoch == 0 && slot != 0 {
+			if slot%c.SlotsPerEpoch == 0 {
 				last := finalizedHash
 				finalizedHash = nextFinalized
+				safeHash = finalizedHash
 				nextFinalized = c.mockChain.CurrentHeader().Hash()
 				c.log.WithField("slot", slot).WithField("last", last).WithField("new", finalizedHash).WithField("next", nextFinalized).Info("Finalized block updated")
 			}
 
-			// TODO: fake some forking by not always building on the latest payload
+			// Gap slot
+			if c.RNG.Float64() < c.Freq.GapSlot {
+				c.log.WithField("slot", slot).Info("Mocking gap slot, no payload execution here")
+				// empty pending proposal
+				select {
+				case <-payloadId:
+				default:
+				}
+				continue
+			}
+
+			// Send bad hash
+			if c.RNG.Float64() < c.Freq.InvalidHashFreq {
+				c.log.Info("Sending payload with invalid hash")
+				baseFee, _ := uint256.FromBig(c.mockChain.CurrentHeader().BaseFee)
+				payload := &ExecutionPayloadV1{
+					ParentHash:    c.mockChain.CurrentHeader().Hash(),
+					FeeRecipient:  common.Address{},
+					StateRoot:     Bytes32{},
+					ReceiptsRoot:  Bytes32{},
+					LogsBloom:     Bytes256{},
+					Random:        Bytes32{},
+					BlockNumber:   Uint64Quantity(c.mockChain.CurrentHeader().Number.Uint64()),
+					GasLimit:      Uint64Quantity(c.mockChain.CurrentHeader().GasLimit),
+					GasUsed:       Uint64Quantity(0),
+					Timestamp:     Uint64Quantity(c.mockChain.CurrentHeader().Time + 1),
+					ExtraData:     BytesMax32{},
+					BaseFeePerGas: Uint256Quantity(*baseFee),
+					BlockHash:     common.HexToHash("0xdeadbeef"),
+					Transactions:  []Data{},
+				}
+				go NewPayloadV1(c.ctx, c.engine, c.log, payload)
+				continue
+			}
+
+			// Fake some forking by building on an ancestor
 			parent := c.mockChain.CurrentHeader()
 			if c.RNG.Float64() < c.Freq.ReorgFreq {
 				min := transitionBlock
@@ -267,57 +301,53 @@ func (c *ConsensusCmd) RunNode() {
 			slotLog := c.log.WithField("slot", slot)
 			slotLog.WithField("previous", parent.Hash()).Info("Slot trigger")
 
-			if c.RNG.Float64() < c.Freq.GapSlot {
-				// gap slot
-				slotLog.Info("Mocking gap slot, no payload execution here")
-			} else {
-				var (
-					block *types.Block
-					err   error
-				)
-				if c.RNG.Float64() < c.Freq.ProposalFreq {
-					// try get a block from the engine, we're a proposer!
-					slotLog.Info("Proposing block with engine")
-
-					// in main loop, avoid concurrent randomness for reproducibility
-					var random32 Bytes32
-					c.RNG.Read(random32[:])
-
-					// when we produce the payload, but fail to get it into the chain
-					consensusProposalFail := c.RNG.Float64() < c.Freq.FailedProposalFreq
-
-					coinbase := common.Address{0x13, 0x37}
-
-					go c.mockProposal(slotLog, finalizedHash, parent.Hash(), slot, coinbase, random32, consensusProposalFail)
-				} else {
-					// build a block, without using the engine, and insert it into the engine
-					slotLog.Debug("Mocking external block")
-
-					// TODO: different proposers, gas limit (target in london) changes, etc.
-					coinbase := common.Address{1}
-					timestamp := c.SlotTimestamp(slot)
-					gasLimit := parent.GasLimit
-					extraData := []byte("proto says hi")
-					uncleBlocks := []*types.Header{} // none in proof of stake
-					creator := TransactionsCreator(dummyTxCreator)
-
-					block, err = c.mockChain.AddNewBlock(parent.Hash(), coinbase, timestamp, gasLimit, creator, [32]byte{}, extraData, uncleBlocks, true)
-					if err != nil {
-						slotLog.WithError(err).Errorf("Failed to add block")
-						continue
-					}
-
-					slotLog.WithField("blockhash", block.Hash()).Debug("Built external block")
-
-					go func(log logrus.Ext1FieldLogger, block *types.Block, final Bytes32) {
-						c.mockExecution(log, block)
-						latest := Bytes32(block.Hash())
-						// Note: head and safe hash are set to the same hash,
-						// until forkchoice updates are more attestation-weight aware.
-						ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, final, nil)
-					}(slotLog, block, Bytes32(finalizedHash))
-				}
+			// If we're proposing, get a block from the engine!
+			select {
+			case id := <-payloadId:
+				slotLog.Info("Update forkchoice to block built by engine")
+				go c.mockProposal(slotLog, id, slot, false)
+				continue
+			default:
+				// Not proposing a block
 			}
+
+			// Build a block, without using the engine, and insert it into the engine
+			slotLog.Debug("Mocking external block")
+
+			// TODO: different proposers, gas limit (target in london) changes, etc.
+			coinbase := common.Address{1}
+			timestamp := c.SlotTimestamp(slot)
+			gasLimit := parent.GasLimit
+			extraData := []byte("proto says hi")
+			uncleBlocks := []*types.Header{}
+			creator := TransactionsCreator(dummyTxCreator)
+
+			block, err := c.mockChain.AddNewBlock(parent.Hash(), coinbase, timestamp, gasLimit, creator, [32]byte{}, extraData, uncleBlocks, true)
+			if err != nil {
+				slotLog.WithError(err).Errorf("Failed to add block")
+				continue
+			}
+
+			slotLog.WithField("blockhash", block.Hash()).Debug("Built external block")
+
+			go func(log logrus.Ext1FieldLogger, block *types.Block, safe, final Bytes32) {
+				c.mockExecution(log, block)
+				latest := Bytes32(block.Hash())
+				// Note: head and safe hash are set to the same hash,
+				// until forkchoice updates are more attestation-weight aware.
+				var payload *PayloadAttributesV1
+				if c.RNG.Float64() < c.Freq.ProposalFreq {
+					// proposing next slot!
+					payload = c.makePayloadAttributes(slot + 1)
+				}
+				result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, payload)
+				if result.Status.Status != ExecutionValid {
+					log.WithField("status", result.Status).Error("Update not considered valid")
+				}
+				if result.PayloadID != nil {
+					payloadId <- *result.PayloadID
+				}
+			}(slotLog, block, Bytes32(safeHash), Bytes32(finalizedHash))
 
 		case <-c.close:
 			c.log.Info("Closing consensus mock node")
@@ -334,66 +364,42 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, finalized, parent common.Hash, slot uint64, coinbase common.Address, random32 Bytes32, consensusFail bool) {
-	payload, err := c.mockPrep(log, finalized, parent, slot, random32, coinbase)
+func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId PayloadID, slot uint64, consensusFail bool) {
+	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
+	defer cancel()
+	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
 	if err != nil {
-		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
+		log.WithError(err).Error("Failed to get payload")
 		return
 	}
-
+	if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
+		log.WithError(err).Error("Payload has bad timestamp")
+		return
+	}
 	if consensusFail {
 		log.Debug("Mocking a failed proposal on consensus-side, ignoring produced payload of engine")
 		return
-	} else {
-		if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
-			log.WithError(err).Error("Payload has bad timestamp")
-			return
-		}
-		block, err := c.mockChain.ProcessPayload(payload)
-		if err != nil {
-			log.WithError(err).Error("Failed to process execution payload from engine")
-			return
-		} else {
-			log.WithField("blockhash", block.Hash()).Debug("Processed payload in consensus mock world")
-		}
-
-		// send it back to execution layer for execution
-		ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
-		defer cancel()
-		res, err := ExecutePayload(ctx, c.engine, log, payload)
-		if err != nil {
-			log.WithError(err).Error("Failed to execute payload")
-		} else if res.Status == ExecutionValid {
-			log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
-		} else if res.Status == ExecutionInvalid {
-			log.WithField("blockhash", block.Hash()).Error("Engine just produced payload and failed to execute it after!")
-		} else {
-			log.WithField("status", res.Status).Error("Unrecognized execution status")
-		}
 	}
-}
 
-func (c *ConsensusCmd) mockPrep(log logrus.Ext1FieldLogger, finalized, parent common.Hash, slot uint64, random Bytes32, feeRecipient common.Address) (*ExecutionPayload, error) {
-	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
-	defer cancel()
-
-	attributes := PayloadAttributes{
-		Timestamp:             Uint64Quantity(c.SlotTimestamp(slot)),
-		Random:                random,
-		SuggestedFeeRecipient: feeRecipient,
-	}
-	latest := Bytes32(parent)
-	res, err := ForkchoiceUpdated(c.ctx, c.engine, c.log, latest, latest, Bytes32(finalized), &attributes)
+	block, err := c.mockChain.ProcessPayload(payload)
 	if err != nil {
-		log.WithError(err).Error("Failed to prepare and get payload, failed proposal")
-		return nil, err
-	}
-	if res.Status == UpdateSyncing {
-		log.Warn("Failed to prepare and get payload, execution client syncing")
-		return nil, fmt.Errorf("execution client syncing")
+		log.WithError(err).Error("Failed to process execution payload from engine")
+		return
+	} else {
+		log.WithField("blockhash", block.Hash()).Debug("Processed payload in consensus mock world")
 	}
 
-	return GetPayload(ctx, c.engine, log, res.PayloadID)
+	// Send it back to execution layer for execution
+	res, err := NewPayloadV1(ctx, c.engine, log, payload)
+	if err != nil {
+		log.WithError(err).Error("Failed to execute payload")
+	} else if res.Status == ExecutionValid {
+		log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
+	} else if res.Status == ExecutionInvalid {
+		log.WithField("blockhash", block.Hash()).Error("Engine just produced payload and failed to execute it after!")
+	} else {
+		log.WithField("status", res.Status).Error("Unrecognized execution status")
+	}
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {
@@ -408,7 +414,7 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 		return
 	}
 
-	ExecutePayload(ctx, c.engine, log, payload)
+	NewPayloadV1(ctx, c.engine, log, payload)
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
@@ -445,4 +451,14 @@ func (c *ConsensusCmd) Close() error {
 		c.close <- struct{}{}
 	}
 	return nil
+}
+
+func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *PayloadAttributesV1 {
+	var random Bytes32
+	c.RNG.Read(random[:])
+	return &PayloadAttributesV1{
+		Timestamp:             Uint64Quantity(c.SlotTimestamp(slot)),
+		Random:                random,
+		SuggestedFeeRecipient: common.Address{0x13, 0x37},
+	}
 }

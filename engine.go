@@ -202,7 +202,7 @@ type EngineBackend struct {
 	recentPayloads *lru.Cache
 }
 
-func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*ExecutionPayload, error) {
+func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*ExecutionPayloadV1, error) {
 	plog := e.log.WithField("payload_id", id)
 
 	payload, ok := e.recentPayloads.Get(id)
@@ -212,16 +212,21 @@ func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*Execut
 	}
 
 	plog.Info("Consensus client retrieved prepared payload")
-	return payload.(*ExecutionPayload), nil
+	return payload.(*ExecutionPayloadV1), nil
 }
 
-func (e *EngineBackend) ExecutePayloadV1(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+func (e *EngineBackend) NewPayloadV1(ctx context.Context, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
+	if !payload.ValidateHash() {
+		return &PayloadStatusV1{Status: ExecutionInvalidBlockHash}, nil
+	}
 	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Cannot execute payload, parent is unknown")
-		// TODO
-		return &ExecutePayloadResult{Status: ExecutionSyncing}, nil
+		return &PayloadStatusV1{Status: ExecutionSyncing}, nil
+	} else if parent.Difficulty.Cmp(e.mockChain.gspec.Config.TerminalTotalDifficulty) < 0 {
+		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Parent block not yet at TTD")
+		return &PayloadStatusV1{Status: ExecutionInvalidTerminalBlock}, nil
 	}
 
 	_, err := e.mockChain.ProcessPayload(payload)
@@ -231,10 +236,10 @@ func (e *EngineBackend) ExecutePayloadV1(ctx context.Context, payload *Execution
 		return nil, err
 	}
 	log.Info("Executed payload")
-	return &ExecutePayloadResult{Status: ExecutionValid}, nil
+	return &PayloadStatusV1{Status: ExecutionValid}, nil
 }
 
-func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceState, attributes *PayloadAttributes) (*ForkchoiceUpdatedResult, error) {
+func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceStateV1, attributes *PayloadAttributesV1) (*ForkchoiceUpdatedResult, error) {
 	e.log.WithFields(logrus.Fields{
 		"head":       heads.HeadBlockHash,
 		"safe":       heads.SafeBlockHash,
@@ -281,5 +286,5 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 
-	return &ForkchoiceUpdatedResult{Status: UpdateSuccess, PayloadID: id}, nil
+	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{ExecutionValid, nil, ""}, PayloadID: &id}, nil
 }

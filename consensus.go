@@ -15,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/protocols/eth"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
@@ -38,7 +37,6 @@ type ConsensusCmd struct {
 	EthashDir   string `ask:"--ethashdir" help:"Directory to store ethash data"`
 	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
 	Enode       string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
-	Ttd         uint64 `ask:"--ttd" help:"The terminal total difficulty for the merge"`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -178,7 +176,7 @@ func (c *ConsensusCmd) proofOfWorkPrelogue(log logrus.Ext1FieldLogger) (transiti
 		}
 
 		// check if terminal total difficulty is reached
-		ttd := new(big.Int).SetUint64(c.Ttd)
+		ttd := mc.chain.Config().TerminalTotalDifficulty
 		td := mc.CurrentTd()
 		log.WithField("td", td).WithField("ttd", ttd).Debug("Comparing TD to terminal TD")
 		if td.Cmp(ttd) >= 0 {
@@ -320,7 +318,7 @@ func (c *ConsensusCmd) RunNode() {
 			gasLimit := parent.GasLimit
 			extraData := []byte("proto says hi")
 			uncleBlocks := []*types.Header{}
-			creator := TransactionsCreator(dummyTxCreator)
+			creator := TransactionsCreator{c.ConsensusBehavior.TestAccounts.accounts, dummyTxCreator}
 
 			block, err := c.mockChain.AddNewBlock(parent.Hash(), coinbase, timestamp, gasLimit, creator, [32]byte{}, extraData, uncleBlocks, true)
 			if err != nil {
@@ -417,27 +415,25 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 	NewPayloadV1(ctx, c.engine, log, payload)
 }
 
-func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
-	// TODO create some more txs
-	var (
-		key, _ = crypto.HexToECDSA("45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8")
-		addr   = crypto.PubkeyToAddress(key.PublicKey)
-		signer = types.NewLondonSigner(config.ChainID)
-	)
-
-	txdata := &types.DynamicFeeTx{
-		ChainID:   config.ChainID,
-		Nonce:     statedb.GetNonce(addr),
-		To:        &addr,
-		Gas:       30000,
-		GasFeeCap: new(big.Int).Mul(big.NewInt(5), big.NewInt(params.GWei)),
-		GasTipCap: big.NewInt(2),
-		Data:      []byte{},
+func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config, accounts []TestAccount) []*types.Transaction {
+	// TODO create some more txs and use all accounts
+	if len(accounts) != 0 {
+		signer := types.NewLondonSigner(config.ChainID)
+		txdata := &types.DynamicFeeTx{
+			ChainID:   config.ChainID,
+			Nonce:     statedb.GetNonce(accounts[0].addr),
+			To:        &accounts[0].addr,
+			Gas:       30000,
+			GasFeeCap: new(big.Int).Mul(big.NewInt(5), big.NewInt(params.GWei)),
+			GasTipCap: big.NewInt(2),
+			Data:      []byte{},
+		}
+		tx := types.NewTx(txdata)
+		tx, _ = types.SignTx(tx, signer, accounts[0].pk)
+		return []*types.Transaction{tx}
+	} else {
+		return nil
 	}
-	tx := types.NewTx(txdata)
-	tx, _ = types.SignTx(tx, signer, key)
-
-	return []*types.Transaction{tx}
 }
 
 func (c *ConsensusCmd) calcReorgTarget(chain *core.BlockChain, parent uint64, min uint64) *types.Header {

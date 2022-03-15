@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -29,6 +30,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
 )
+
+type testAccount struct {
+	pk   *ecdsa.PrivateKey
+	addr common.Address
+}
 
 // This implements the execution-block-header verification interface, but omits many of the details:
 // the mock doesn't fully verify, and sealing work of headers is very limited.
@@ -179,7 +185,14 @@ type TraceLogConfig struct {
 	Limit            int  `ask:"--limit" help:"maximum length of output, but zero means unlimited"`
 }
 
-type TransactionsCreator func(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction
+type TransactionsCreator struct {
+	accounts []TestAccount
+	fn       func(*params.ChainConfig, core.ChainContext, *state.StateDB, *types.Header, vm.Config, []TestAccount) []*types.Transaction
+}
+
+func (t *TransactionsCreator) Create(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config) []*types.Transaction {
+	return t.fn(config, bc, statedb, header, cfg, t.accounts)
+}
 
 type MockChain struct {
 	chain     *core.BlockChain
@@ -287,7 +300,8 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	if c.traceOpts.EnableTrace {
 		vmconf.Tracer = stl
 	}
-	txs := txsCreator(config, c.chain, statedb, header, vmconf)
+
+	txs := txsCreator.Create(config, c.chain, statedb, header, vmconf)
 	for i, tx := range txs {
 		receipt, err := core.ApplyTransaction(config, c.chain, &header.Coinbase, gasPool, statedb, header, tx, &header.GasUsed, vmconf)
 		if err != nil {

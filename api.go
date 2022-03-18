@@ -123,7 +123,7 @@ type ExecutionPayloadV1 struct {
 	StateRoot     Bytes32         `json:"stateRoot"`
 	ReceiptsRoot  Bytes32         `json:"receiptsRoot"`
 	LogsBloom     Bytes256        `json:"logsBloom"`
-	Random        Bytes32         `json:"random"`
+	PrevRandao    Bytes32         `json:"prevRandao"`
 	BlockNumber   Uint64Quantity  `json:"blockNumber"`
 	GasLimit      Uint64Quantity  `json:"gasLimit"`
 	GasUsed       Uint64Quantity  `json:"gasUsed"`
@@ -155,7 +155,7 @@ func (p *ExecutionPayloadV1) ValidateHash() bool {
 		GasUsed:     uint64(p.GasUsed),
 		Time:        uint64(p.Timestamp),
 		Extra:       p.ExtraData,
-		MixDigest:   common.Hash(p.Random),
+		MixDigest:   common.Hash(p.PrevRandao),
 		BaseFee:     p.BaseFeePerGas.ToBig(),
 	}
 	if header.Hash() != common.Hash(p.BlockHash) {
@@ -167,8 +167,8 @@ func (p *ExecutionPayloadV1) ValidateHash() bool {
 type PayloadAttributesV1 struct {
 	// value for the timestamp field of the new payload
 	Timestamp Uint64Quantity `json:"timestamp"`
-	// value for the random field of the new payload
-	Random Bytes32 `json:"random"`
+	// value for the previous randao field of the new payload
+	PrevRandao Bytes32 `json:"prevRandao"`
 	// suggested value for the coinbase field of the new payload
 	SuggestedFeeRecipient common.Address `json:"suggestedFeeRecipient"`
 }
@@ -217,7 +217,6 @@ type ForkchoiceUpdatedResult struct {
 
 func GetPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {
 	e := log.WithField("payload_id", payloadId)
-	e.Debug("getting payload")
 	var result ExecutionPayloadV1
 	err := cl.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
 	if err != nil {
@@ -300,7 +299,7 @@ func BlockToPayload(bl *types.Block) (*ExecutionPayloadV1, error) {
 		StateRoot:     Bytes32(bl.Root()),
 		ReceiptsRoot:  Bytes32(bl.ReceiptHash()),
 		LogsBloom:     Bytes256(bl.Bloom()),
-		Random:        Bytes32(bl.MixDigest()),
+		PrevRandao:    Bytes32(bl.MixDigest()),
 		BlockNumber:   Uint64Quantity(bl.NumberU64()),
 		GasLimit:      Uint64Quantity(bl.GasLimit()),
 		GasUsed:       Uint64Quantity(bl.GasUsed()),

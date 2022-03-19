@@ -1,9 +1,14 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"math/rand"
 	"strconv"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 const DefaultRNGSeed = 1234
@@ -29,9 +34,44 @@ func (i *RNG) Type() string {
 	return "RNG"
 }
 
+type TestAccount struct {
+	pk   *ecdsa.PrivateKey
+	addr common.Address
+}
+
+type TestAccounts struct {
+	accounts []TestAccount
+}
+
+func (t *TestAccounts) String() string {
+	all := make([]string, 0, len(t.accounts))
+	for _, a := range t.accounts {
+		all = append(all, a.addr.String())
+	}
+	return strings.Join(all, ",")
+}
+
+func (t *TestAccounts) Set(s string) error {
+	keys := strings.Split(s, ",")
+	t.accounts = make([]TestAccount, 0, len(keys))
+	for _, hex := range keys {
+		pk, err := crypto.HexToECDSA(hex)
+		if err != nil {
+			return fmt.Errorf("failed interpret hex private key: %s", err)
+		}
+		t.accounts = append(t.accounts, TestAccount{pk, crypto.PubkeyToAddress(pk.PublicKey)})
+	}
+	return nil
+}
+
+func (t *TestAccounts) Type() string {
+	return "TestAccount"
+}
+
 type ConsensusBehavior struct {
-	RNG  RNG `ask:"--rng" help:"seed the RNG with an integer number"`
-	Freq struct {
+	RNG          RNG          `ask:"--rng" help:"seed the RNG with an integer number"`
+	TestAccounts TestAccounts `ask:"--test-accounts" help:"comma-seperated list of hex encoded private key for an account to send test transactions from"`
+	Freq         struct {
 		GapSlot            float64 `ask:"--gap" help:"How often an execution block is missing"`
 		ProposalFreq       float64 `ask:"--proposal" help:"How often the engine gets to propose a block"`
 		FailedProposalFreq float64 `ask:"--ignore" help:"How often the payload produced by the engine does not become canonical"`

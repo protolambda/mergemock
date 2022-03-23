@@ -1,4 +1,4 @@
-package main
+package rpc
 
 import (
 	"context"
@@ -14,8 +14,12 @@ type Client struct {
 	secret []byte
 }
 
-func NewClient(client *rpc.Client, secret []byte) *Client {
-	return &Client{client, secret}
+func Dial(rawurl string, secret []byte) (*Client, error) {
+	client, err := rpc.Dial(rawurl)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{client, secret}, nil
 }
 
 func (c *Client) CallContext(ctx context.Context, result interface{}, method string, args ...interface{}) error {

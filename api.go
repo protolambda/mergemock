@@ -4,16 +4,17 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"mergemock/rpc"
 	"reflect"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/holiman/uint256"
 
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
 )
 
@@ -215,13 +216,13 @@ type ForkchoiceUpdatedResult struct {
 	PayloadID *PayloadID `json:"payloadId"`
 }
 
-func GetPayloadV1(ctx context.Context, cl *Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {
+func GetPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {
 	e := log.WithField("payload_id", payloadId)
 	var result ExecutionPayloadV1
 	err := cl.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
 	if err != nil {
 		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
+		if rpcErr, ok := err.(gethRpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
 			if code != UnavailablePayload {
 				e.WithField("code", code).Warn("unexpected error code in get-payload response")
@@ -237,7 +238,7 @@ func GetPayloadV1(ctx context.Context, cl *Client, log logrus.Ext1FieldLogger, p
 	return &result, nil
 }
 
-func NewPayloadV1(ctx context.Context, cl *Client, log logrus.Ext1FieldLogger, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
+func NewPayloadV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
 	e := log.WithField("block_hash", payload.BlockHash)
 	var result PayloadStatusV1
 	err := cl.CallContext(ctx, &result, "engine_newPayloadV1", payload)
@@ -249,7 +250,7 @@ func NewPayloadV1(ctx context.Context, cl *Client, log logrus.Ext1FieldLogger, p
 	return &result, nil
 }
 
-func ForkchoiceUpdatedV1(ctx context.Context, cl *Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributesV1) (ForkchoiceUpdatedResult, error) {
+func ForkchoiceUpdatedV1(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, head, safe, finalized Bytes32, payload *PayloadAttributesV1) (ForkchoiceUpdatedResult, error) {
 	heads := &ForkchoiceStateV1{HeadBlockHash: head, SafeBlockHash: safe, FinalizedBlockHash: finalized}
 
 	e := log.WithField("head", head).WithField("safe", safe).WithField("finalized", finalized).WithField("payload", payload)
@@ -265,7 +266,7 @@ func ForkchoiceUpdatedV1(ctx context.Context, cl *Client, log logrus.Ext1FieldLo
 		return result, nil
 	} else {
 		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
+		if rpcErr, ok := err.(gethRpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
 			e.WithField("code", code).Warn("Unexpected error code in forkchoice-updated response")
 		} else {

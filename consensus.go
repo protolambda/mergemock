@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"mergemock/p2p"
+	"mergemock/rpc"
 	"net/url"
 	"os"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
@@ -51,7 +51,7 @@ type ConsensusCmd struct {
 	close     chan struct{}
 	log       logrus.Ext1FieldLogger
 	ctx       context.Context
-	engine    *Client
+	engine    *rpc.Client
 	jwtSecret []byte
 	db        ethdb.Database
 
@@ -100,7 +100,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	if u.Scheme != "http" {
 		return fmt.Errorf("cannot connect to engine, only http currently supported")
 	}
-	client, err := rpc.Dial(c.EngineAddr)
+	client, err := rpc.Dial(c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	}
 
 	c.log = log
-	c.engine = NewClient(client, c.jwtSecret)
+	c.engine = client
 	c.db = db
 	c.ctx = ctx
 	c.close = make(chan struct{})

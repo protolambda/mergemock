@@ -2,3 +2,4 @@
 *.json
 data
 ethash
+jwt.hex

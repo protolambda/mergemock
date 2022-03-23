@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"mergemock/p2p"
+	"mergemock/rpc"
 	"os"
 	"time"
 
@@ -19,7 +20,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
@@ -32,11 +32,12 @@ type ConsensusCmd struct {
 	// - % random gap slots (= missing beacon blocks)
 	// - % random finality
 
-	EngineAddr  string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
-	DataDir     string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
-	EthashDir   string `ask:"--ethashdir" help:"Directory to store ethash data"`
-	GenesisPath string `ask:"--genesis" help:"Genesis execution-config file"`
-	Enode       string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
+	EngineAddr    string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
+	DataDir       string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
+	EthashDir     string `ask:"--ethashdir" help:"Directory to store ethash data"`
+	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
+	JwtSecretPath string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
+	Enode         string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -46,11 +47,12 @@ type ConsensusCmd struct {
 
 	TraceLogConfig `ask:".trace" help:"Tracing options"`
 
-	close  chan struct{}
-	log    logrus.Ext1FieldLogger
-	ctx    context.Context
-	engine *rpc.Client
-	db     ethdb.Database
+	close     chan struct{}
+	log       logrus.Ext1FieldLogger
+	ctx       context.Context
+	engine    *rpc.Client
+	jwtSecret []byte
+	db        ethdb.Database
 
 	ethashCfg ethash.Config
 	peer      *p2p.Conn
@@ -62,6 +64,7 @@ func (c *ConsensusCmd) Default() {
 	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
 	c.EngineAddr = "http://127.0.0.1:8550"
 	c.GenesisPath = "genesis.json"
+	c.JwtSecretPath = "jwt.hex"
 	c.Enode = ""
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
@@ -81,8 +84,15 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return fmt.Errorf("slot time %s is too small", c.SlotTime.String())
 	}
 
+	jwt, err := loadJwtSecret(c.JwtSecretPath)
+	if err != nil {
+		log.WithField("err", err).Fatal("Unable to read JWT secret")
+	}
+	c.jwtSecret = jwt
+	log.WithField("val", common.Bytes2Hex(c.jwtSecret[:])).Info("Loaded JWT secret")
+
 	// Connect to execution client engine api
-	client, err := rpc.DialContext(ctx, c.EngineAddr)
+	client, err := rpc.DialContext(ctx, c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err
 	}
@@ -132,6 +142,10 @@ func (c *ConsensusCmd) proofOfWorkPrelogue(log logrus.Ext1FieldLogger) (transiti
 	mc, err := NewMockChain(log, engine, c.GenesisPath, c.db, &c.TraceLogConfig)
 	if err != nil {
 		return 0, fmt.Errorf("unable to initialize mock chain: %v", err)
+	}
+	if mc.chain.Config().TerminalTotalDifficulty.Cmp(common.Big0) != 1 {
+		// Already transitioned
+		return 0, nil
 	}
 
 	// Dial the peer to feed the POW blocks to
@@ -269,7 +283,7 @@ func (c *ConsensusCmd) RunNode() {
 					StateRoot:     Bytes32{},
 					ReceiptsRoot:  Bytes32{},
 					LogsBloom:     Bytes256{},
-					Random:        Bytes32{},
+					PrevRandao:    Bytes32{},
 					BlockNumber:   Uint64Quantity(c.mockChain.CurrentHeader().Number.Uint64()),
 					GasLimit:      Uint64Quantity(c.mockChain.CurrentHeader().GasLimit),
 					GasUsed:       Uint64Quantity(0),
@@ -450,11 +464,11 @@ func (c *ConsensusCmd) Close() error {
 }
 
 func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *PayloadAttributesV1 {
-	var random Bytes32
-	c.RNG.Read(random[:])
+	var prevRandao Bytes32
+	c.RNG.Read(prevRandao[:])
 	return &PayloadAttributesV1{
 		Timestamp:             Uint64Quantity(c.SlotTimestamp(slot)),
-		Random:                random,
+		PrevRandao:            prevRandao,
 		SuggestedFeeRecipient: common.Address{0x13, 0x37},
 	}
 }

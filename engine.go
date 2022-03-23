@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -15,10 +16,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru"
 
-	gethnode "github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
 )
@@ -28,6 +29,7 @@ type EngineCmd struct {
 	SlotsPerEpoch uint64 `ask:"--slots-per-epoch" help:"Slots per epoch"`
 	DataDir       string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
+	JwtSecretPath string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
 
 	// connectivity options
 	ListenAddr    string   `ask:"--listen-addr" help:"Address to bind RPC HTTP server to"`
@@ -50,13 +52,16 @@ type EngineCmd struct {
 	rpcSrv *rpc.Server
 	srv    *http.Server
 	wsSrv  *http.Server // upgrades to websocket rpc
+
+	jwtSecret []byte
 }
 
 func (c *EngineCmd) Default() {
 	c.GenesisPath = "genesis.json"
+	c.JwtSecretPath = "jwt.hex"
 
-	c.ListenAddr = "127.0.0.1:8550"
-	c.WebsocketAddr = "127.0.0.1:8551"
+	c.ListenAddr = "127.0.0.1:8551"
+	c.WebsocketAddr = "127.0.0.1:8552"
 	c.Cors = []string{"*"}
 
 	c.Timeout.Read = 30 * time.Second
@@ -74,6 +79,12 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 		// Logger wasn't initialized so we can't log. Error out instead.
 		return err
 	}
+	jwt, err := loadJwtSecret(c.JwtSecretPath)
+	if err != nil {
+		c.log.WithField("err", err).Fatal("Unable to read JWT secret")
+	}
+	c.jwtSecret = jwt
+	c.log.WithField("val", common.Bytes2Hex(c.jwtSecret)).Info("Loaded JWT secret")
 	chain, err := c.makeMockChain()
 	if err != nil {
 		c.log.WithField("err", err).Fatal("Unable to initialize mock chain")
@@ -123,6 +134,18 @@ func (c *EngineCmd) initLogger(ctx context.Context) error {
 	return nil
 }
 
+func loadJwtSecret(path string) ([]byte, error) {
+	raw, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	jwt := common.Hex2Bytes(string(raw))
+	if len(jwt) != 32 {
+		return nil, fmt.Errorf("invalid length, expected 32-byte value")
+	}
+	return jwt, nil
+}
+
 func (c *EngineCmd) makeMockChain() (*MockChain, error) {
 	posEngine := &ExecutionConsensusMock{
 		pow: nil, // TODO: do we even need this?
@@ -138,19 +161,28 @@ func (c *EngineCmd) makeMockChain() (*MockChain, error) {
 func (c *EngineCmd) startRPC(ctx context.Context, backend *EngineBackend) {
 	c.rpcSrv = rpc.NewServer()
 	c.rpcSrv.RegisterName("engine", backend)
-	wrappedRpc := gethnode.NewHTTPHandlerStack(c.rpcSrv, c.Cors, nil)
+	apis := []rpc.API{
+		{
+			Namespace:     "engine",
+			Version:       "1.0",
+			Service:       backend,
+			Public:        true,
+			Authenticated: true,
+		},
+	}
+	if err := node.RegisterApis(apis, []string{"engine"}, c.rpcSrv, false); err != nil {
+		c.log.WithField("err", err).Fatal("could not register api")
+	}
 
+	httpRpcHandler := node.NewHTTPHandlerStack(c.rpcSrv, c.Cors, nil, c.jwtSecret[:])
 	mux := http.NewServeMux()
-	mux.Handle("/", wrappedRpc)
+	mux.Handle("/", httpRpcHandler)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		w.Write([]byte("wrong port, use the websocket port"))
 		c.log.WithField("addr", r.RemoteAddr).Warn("User tried to connect to websocket on HTTP port")
 	})
-
-	// log http errors to our logrus logger
 	logHttp := c.log.WithField("type", "http")
-
 	c.srv = &http.Server{
 		Addr:              c.ListenAddr,
 		Handler:           mux,
@@ -169,17 +201,14 @@ func (c *EngineCmd) startRPC(ctx context.Context, backend *EngineBackend) {
 		},
 	}
 
-	wsHandler := c.rpcSrv.WebsocketHandler(c.Cors)
-
+	wsHandler := node.NewWSHandlerStack(c.rpcSrv.WebsocketHandler(c.Cors), c.jwtSecret)
 	wsMux := http.NewServeMux()
 	wsMux.Handle("/", wsHandler)
 	wsMux.Handle("/ws", wsHandler)
-
 	logWs := c.log.WithField("type", "ws")
-
 	c.wsSrv = &http.Server{
 		Addr:              c.WebsocketAddr,
-		Handler:           wsHandler,
+		Handler:           wsMux,
 		ReadTimeout:       c.Timeout.Read,
 		ReadHeaderTimeout: c.Timeout.ReadHeader,
 		WriteTimeout:      c.Timeout.Write,
@@ -276,7 +305,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	extraData := []byte{}
 
 	bl, err := e.mockChain.AddNewBlock(common.BytesToHash(heads.HeadBlockHash[:]), attributes.SuggestedFeeRecipient, uint64(attributes.Timestamp),
-		gasLimit, txsCreator, attributes.Random, extraData, nil, false)
+		gasLimit, txsCreator, attributes.PrevRandao, extraData, nil, false)
 
 	if err != nil {
 		// TODO: proper error codes

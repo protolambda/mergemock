@@ -50,7 +50,7 @@ type ConsensusCmd struct {
 	close     chan struct{}
 	log       logrus.Ext1FieldLogger
 	ctx       context.Context
-	engine    *rpc.Client
+	engine    *Client
 	jwtSecret []byte
 	db        ethdb.Database
 
@@ -92,7 +92,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	log.WithField("val", common.Bytes2Hex(c.jwtSecret[:])).Info("Loaded JWT secret")
 
 	// Connect to execution client engine api
-	client, err := rpc.DialJWT(ctx, c.EngineAddr, c.jwtSecret)
+	client, err := rpc.Dial(c.EngineAddr)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	}
 
 	c.log = log
-	c.engine = client
+	c.engine = NewClient(client, c.jwtSecret)
 	c.db = db
 	c.ctx = ctx
 	c.close = make(chan struct{})

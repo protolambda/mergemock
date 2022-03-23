@@ -15,7 +15,7 @@ type Client struct {
 	secret []byte
 }
 
-func Dial(rawurl string, secret []byte) (*Client, error) {
+func DialContext(ctx context.Context, rawurl string, secret []byte) (*Client, error) {
 	// TODO: add support for websocket
 	// --
 	// There doesn't appear to be an easy way to dial a ws connection with
@@ -28,8 +28,7 @@ func Dial(rawurl string, secret []byte) (*Client, error) {
 	if u.Scheme != "http" {
 		return nil, fmt.Errorf("cannot connect to engine, only http currently supported")
 	}
-
-	client, err := rpc.Dial(rawurl)
+	client, err := rpc.DialContext(ctx, rawurl)
 	if err != nil {
 		return nil, err
 	}

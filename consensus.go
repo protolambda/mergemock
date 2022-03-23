@@ -92,7 +92,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	log.WithField("val", common.Bytes2Hex(c.jwtSecret[:])).Info("Loaded JWT secret")
 
 	// Connect to execution client engine api
-	client, err := rpc.Dial(c.EngineAddr, c.jwtSecret)
+	client, err := rpc.DialContext(ctx, c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err
 	}

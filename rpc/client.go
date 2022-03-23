@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
@@ -15,6 +16,19 @@ type Client struct {
 }
 
 func Dial(rawurl string, secret []byte) (*Client, error) {
+	// TODO: add support for websocket
+	// --
+	// There doesn't appear to be an easy way to dial a ws connection with
+	// jwt in geth to receive an rpc.Client, so we'll just force HTTP for
+	// now.
+	u, err := url.Parse(rawurl)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "http" {
+		return nil, fmt.Errorf("cannot connect to engine, only http currently supported")
+	}
+
 	client, err := rpc.Dial(rawurl)
 	if err != nil {
 		return nil, err

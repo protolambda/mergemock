@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"mergemock/p2p"
 	"mergemock/rpc"
-	"net/url"
 	"os"
 	"time"
 
@@ -93,13 +92,6 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	log.WithField("val", common.Bytes2Hex(c.jwtSecret[:])).Info("Loaded JWT secret")
 
 	// Connect to execution client engine api
-	u, err := url.Parse(c.EngineAddr)
-	if err != nil {
-		return err
-	}
-	if u.Scheme != "http" {
-		return fmt.Errorf("cannot connect to engine, only http currently supported")
-	}
 	client, err := rpc.Dial(c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err

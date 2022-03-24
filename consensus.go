@@ -40,7 +40,7 @@ type ConsensusCmd struct {
 	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
 	JwtSecretPath string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
 	Enode         string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
-	TestRuns      uint64 `ask:"--test-runs" help:"The amount of blocks to produce in a CI run"`
+	SlotBound     uint64 `ask:"--slot-bound" help:"Terminate after the specified number of slots."`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -70,7 +70,7 @@ func (c *ConsensusCmd) Default() {
 	c.GenesisPath = "genesis.json"
 	c.JwtSecretPath = "jwt.hex"
 	c.Enode = ""
-	c.TestRuns = 0
+	c.SlotBound = 0
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
@@ -268,8 +268,8 @@ func (c *ConsensusCmd) RunNode() {
 				continue
 			}
 			slot := uint64(signedSlot)
-			if c.TestRuns > 0 && slot > c.TestRuns {
-				c.log.WithField("testRuns", c.TestRuns).Info("All test runs successfully completed")
+			if c.SlotBound > 0 && slot > c.SlotBound {
+				c.log.WithField("testRuns", c.SlotBound).Info("All test runs successfully completed")
 				os.Exit(0)
 			}
 			if slot%c.SlotsPerEpoch == 0 {
@@ -432,12 +432,12 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 	payload, err := c.getMockProposal(ctx, log, payloadId)
 	if err != nil {
 		log.WithError(err).Error("Unable to retrieve proposal payload")
-		maybeExit(c.TestRuns)
+		maybeExit(c.SlotBound)
 		return
 	}
 	if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
 		log.WithError(err).Error("Payload has bad timestamp")
-		maybeExit(c.TestRuns)
+		maybeExit(c.SlotBound)
 		return
 	}
 	if consensusFail {
@@ -447,7 +447,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 	block, err := c.mockChain.ProcessPayload(payload)
 	if err != nil {
 		log.WithError(err).Error("Failed to process execution payload from engine")
-		maybeExit(c.TestRuns)
+		maybeExit(c.SlotBound)
 		return
 	} else {
 		log.WithField("blockhash", block.Hash()).Debug("Processed payload in consensus mock world")
@@ -466,7 +466,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 	} else {
 		log.WithField("status", res.Status).Error("Unrecognized execution status")
 	}
-	maybeExit(c.TestRuns)
+	maybeExit(c.SlotBound)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {

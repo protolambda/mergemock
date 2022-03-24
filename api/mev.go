@@ -9,7 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type ExecutionPayloadHeader struct {
+type ExecutionPayloadHeaderV1 struct {
 	ParentHash       common.Hash     `json:"parentHash"`
 	Coinbase         common.Address  `json:"coinbase"`
 	StateRoot        Bytes32         `json:"stateRoot"`
@@ -38,15 +38,14 @@ type BlindedBeaconBlock struct {
 }
 
 type BlindedBeaconBlockBody struct {
-	ExecutionPayload ExecutionPayloadHeader `json:"execution_payload_header"`
+	ExecutionPayload ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
 }
 
-func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger,
-	payloadId PayloadID) (*ExecutionPayloadHeader, error) {
+func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadHeaderV1, error) {
 
 	e := log.WithField("payload_id", payloadId)
 	e.Debug("getting payload")
-	var result ExecutionPayloadHeader
+	var result ExecutionPayloadHeaderV1
 	err := cl.CallContext(ctx, &result, "builder_getPayloadHeaderV1", payloadId)
 	if err != nil {
 		e = e.WithError(err)
@@ -66,7 +65,7 @@ func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 	return &result, nil
 }
 
-func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadHeader) (*ExecutionPayloadV1, error) {
+func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadHeaderV1) (*ExecutionPayloadV1, error) {
 	e := log.WithField("block_hash", header.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutionPayloadV1

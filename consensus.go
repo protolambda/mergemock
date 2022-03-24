@@ -21,7 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
-	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
@@ -55,7 +54,7 @@ type ConsensusCmd struct {
 	log       logrus.Ext1FieldLogger
 	ctx       context.Context
 	engine    *rpc.Client
-	builder   *gethRpc.Client
+	builder   *rpc.Client
 	jwtSecret []byte
 	db        ethdb.Database
 
@@ -105,7 +104,7 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 
 	// Connect to builder api (if required)
 	if c.BuilderAddr != "" {
-		builder, err := gethRpc.DialContext(ctx, c.BuilderAddr)
+		builder, err := rpc.DialContext(ctx, c.BuilderAddr, nil)
 		if err != nil {
 			return err
 		}
@@ -365,17 +364,14 @@ func (c *ConsensusCmd) RunNode() {
 				latest := Bytes32(block.Hash())
 				// Note: head and safe hash are set to the same hash,
 				// until forkchoice updates are more attestation-weight aware.
-				var payload *PayloadAttributesV1
+				var attributes *PayloadAttributesV1
 				if c.RNG.Float64() < c.Freq.ProposalFreq {
 					// proposing next slot!
-					payload = c.makePayloadAttributes(slot + 1)
+					attributes = c.makePayloadAttributes(slot + 1)
 				}
-				result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, payload)
-				if result.Status.Status != ExecutionValid {
-					log.WithField("status", result.Status).Error("Update not considered valid")
-				}
-				if result.PayloadID != nil {
-					payloadId <- *result.PayloadID
+				id := c.sendForkchoiceUpdated(latest, safe, final, attributes)
+				if id != nil {
+					payloadId <- *id
 				}
 			}(slotLog, block, Bytes32(safeHash), Bytes32(finalizedHash))
 
@@ -390,6 +386,21 @@ func (c *ConsensusCmd) RunNode() {
 			}
 		}
 	}
+}
+
+func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final Bytes32, attributes *PayloadAttributesV1) *PayloadID {
+	result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
+	if result.Status.Status != ExecutionValid {
+		c.log.WithField("status", result.Status).Error("Update not considered valid")
+	}
+	if c.builder != nil {
+		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
+		if result.Status.Status != ExecutionValid {
+			c.log.WithField("status", result.Status).Error("Update not considered valid")
+		}
+		return result.PayloadID
+	}
+	return result.PayloadID
 }
 
 func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {

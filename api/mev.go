@@ -2,9 +2,10 @@ package api
 
 import (
 	"context"
+	"mergemock/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
+	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
 )
 
@@ -49,7 +50,7 @@ func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 	err := cl.CallContext(ctx, &result, "builder_getPayloadHeaderV1", payloadId)
 	if err != nil {
 		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
+		if rpcErr, ok := err.(gethRpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
 			if code != UnavailablePayload {
 				e.WithField("code", code).Warn("unexpected error code in get-payload response")
@@ -77,7 +78,7 @@ func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 
 	if err != nil {
 		e = e.WithError(err)
-		if rpcErr, ok := err.(rpc.Error); ok {
+		if rpcErr, ok := err.(gethRpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
 			if code != UnavailablePayload {
 				e.WithField("code", code).Warn("unexpected error code in propose-payload response")

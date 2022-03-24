@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"context"
@@ -65,7 +65,7 @@ func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 	return &result, nil
 }
 
-func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadV1Header) (*ExecutionPayloadV1, error) {
+func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadHeader) (*ExecutionPayloadV1, error) {
 	e := log.WithField("block_hash", header.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutionPayloadV1

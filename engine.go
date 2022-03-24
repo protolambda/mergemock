@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	. "mergemock/api"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -18,11 +19,21 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
+	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
 
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sirupsen/logrus"
 )
+
+// received message isn't a valid request
+type rpcError struct {
+	err error
+	id  ErrorCode
+}
+
+func (e *rpcError) ErrorCode() int { return int(e.id) }
+
+func (e *rpcError) Error() string { return e.err.Error() }
 
 type EngineCmd struct {
 	// chain options
@@ -49,7 +60,7 @@ type EngineCmd struct {
 	close  chan struct{}
 	log    logrus.Ext1FieldLogger
 	ctx    context.Context
-	rpcSrv *rpc.Server
+	rpcSrv *gethRpc.Server
 	srv    *http.Server
 	wsSrv  *http.Server // upgrades to websocket rpc
 
@@ -159,9 +170,9 @@ func (c *EngineCmd) makeMockChain() (*MockChain, error) {
 }
 
 func (c *EngineCmd) startRPC(ctx context.Context, backend *EngineBackend) {
-	c.rpcSrv = rpc.NewServer()
+	c.rpcSrv = gethRpc.NewServer()
 	c.rpcSrv.RegisterName("engine", backend)
-	apis := []rpc.API{
+	apis := []gethRpc.API{
 		{
 			Namespace:     "engine",
 			Version:       "1.0",

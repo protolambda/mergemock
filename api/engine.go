@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"context"
@@ -23,16 +23,6 @@ type ErrorCode int
 const (
 	UnavailablePayload ErrorCode = -32001
 )
-
-// received message isn't a valid request
-type rpcError struct {
-	err error
-	id  ErrorCode
-}
-
-func (e *rpcError) ErrorCode() int { return int(e.id) }
-
-func (e *rpcError) Error() string { return e.err.Error() }
 
 type Bytes32 [32]byte
 

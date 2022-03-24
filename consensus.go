@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	. "mergemock/api"
 	"mergemock/p2p"
 	"mergemock/rpc"
 	"os"

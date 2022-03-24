@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
+	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
@@ -34,6 +35,7 @@ type ConsensusCmd struct {
 	// - % random finality
 
 	EngineAddr    string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
+	BuilderAddr   string `ask:"--builder" help:"Address of builder JSON-RPC endpoint to use"`
 	DataDir       string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	EthashDir     string `ask:"--ethashdir" help:"Directory to store ethash data"`
 	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
@@ -53,6 +55,7 @@ type ConsensusCmd struct {
 	log       logrus.Ext1FieldLogger
 	ctx       context.Context
 	engine    *rpc.Client
+	builder   *gethRpc.Client
 	jwtSecret []byte
 	db        ethdb.Database
 
@@ -68,6 +71,7 @@ func (c *ConsensusCmd) Default() {
 	c.GenesisPath = "genesis.json"
 	c.JwtSecretPath = "jwt.hex"
 	c.Enode = ""
+	c.TestRuns = 0
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
@@ -97,6 +101,15 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	client, err := rpc.DialContext(ctx, c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err
+	}
+
+	// Connect to builder api (if required)
+	if c.BuilderAddr != "" {
+		builder, err := gethRpc.DialContext(ctx, c.BuilderAddr)
+		if err != nil {
+			return err
+		}
+		c.builder = builder
 	}
 
 	c.ethashCfg = ethash.Config{
@@ -260,7 +273,6 @@ func (c *ConsensusCmd) RunNode() {
 				c.log.WithField("testRuns", c.TestRuns).Info("All test runs successfully completed")
 				os.Exit(0)
 			}
-
 			if slot%c.SlotsPerEpoch == 0 {
 				last := finalizedHash
 				finalizedHash = nextFinalized
@@ -268,7 +280,6 @@ func (c *ConsensusCmd) RunNode() {
 				nextFinalized = c.mockChain.CurrentHeader().Hash()
 				c.log.WithField("slot", slot).WithField("last", last).WithField("new", finalizedHash).WithField("next", nextFinalized).Info("Finalized block updated")
 			}
-
 			// Gap slot
 			if c.RNG.Float64() < c.Freq.GapSlot {
 				c.log.WithField("slot", slot).Info("Mocking gap slot, no payload execution here")
@@ -371,11 +382,9 @@ func (c *ConsensusCmd) RunNode() {
 		case <-c.close:
 			c.log.Info("Closing consensus mock node")
 			c.engine.Close()
-
 			if err := c.mockChain.Close(); err != nil {
 				c.log.WithError(err).Error("Failed closing mock chain")
 			}
-
 			if err := c.db.Close(); err != nil {
 				c.log.WithError(err).Error("Failed closing database")
 			}
@@ -383,32 +392,51 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
+func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {
+	// If the CL is connected to builder client, request the payload from there.
+	if c.builder != nil {
+		header, err := GetPayloadHeader(c.ctx, c.builder, log, payloadId)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := ProposePayload(ctx, c.builder, log, header)
+		if err != nil {
+			return nil, err
+		}
+		return payload, err
+	}
+
+	// Otherwise, get payload from EL.
+	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
+	if err != nil {
+		return nil, err
+	}
+	return payload, err
+}
+
 func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId PayloadID, slot uint64, consensusFail bool) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
-	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
+
+	payload, err := c.getMockProposal(ctx, log, payloadId)
 	if err != nil {
-		log.WithError(err).Error("Failed to get payload")
-		if c.TestRuns > 0 {
-			os.Exit(1)
-		}
+		log.WithError(err).Error("Unable to retrieve proposal payload")
+		maybeExit(c.TestRuns)
 		return
 	}
 	if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
 		log.WithError(err).Error("Payload has bad timestamp")
-		if c.TestRuns > 0 {
-			os.Exit(1)
-		}
+		maybeExit(c.TestRuns)
 		return
 	}
 	if consensusFail {
 		log.Debug("Mocking a failed proposal on consensus-side, ignoring produced payload of engine")
 		return
 	}
-
 	block, err := c.mockChain.ProcessPayload(payload)
 	if err != nil {
 		log.WithError(err).Error("Failed to process execution payload from engine")
+		maybeExit(c.TestRuns)
 		return
 	} else {
 		log.WithField("blockhash", block.Hash()).Debug("Processed payload in consensus mock world")
@@ -416,15 +444,18 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 
 	// Send it back to execution layer for execution
 	res, err := NewPayloadV1(ctx, c.engine, log, payload)
+	if err == nil && res.Status == ExecutionValid {
+		log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
+		return
+	}
 	if err != nil {
 		log.WithError(err).Error("Failed to execute payload")
-	} else if res.Status == ExecutionValid {
-		log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
 	} else if res.Status == ExecutionInvalid {
 		log.WithField("blockhash", block.Hash()).Error("Engine just produced payload and failed to execute it after!")
 	} else {
 		log.WithField("status", res.Status).Error("Unrecognized execution status")
 	}
+	maybeExit(c.TestRuns)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {
@@ -483,5 +514,11 @@ func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *PayloadAttributesV1 {
 		Timestamp:             Uint64Quantity(c.SlotTimestamp(slot)),
 		PrevRandao:            prevRandao,
 		SuggestedFeeRecipient: common.Address{0x13, 0x37},
+	}
+}
+
+func maybeExit(val uint64) {
+	if val != 0 {
+		os.Exit(1)
 	}
 }

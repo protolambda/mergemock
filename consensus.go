@@ -38,6 +38,7 @@ type ConsensusCmd struct {
 	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
 	JwtSecretPath string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
 	Enode         string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
+	MevBoostAddr  string `ask:"--mevboost" help:"Url for mev-boost integration. If empty, then mev-boost is disabled. Defaults to empty."`
 
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
@@ -51,6 +52,7 @@ type ConsensusCmd struct {
 	log       logrus.Ext1FieldLogger
 	ctx       context.Context
 	engine    *rpc.Client
+	mevboost  *rpc.Client
 	jwtSecret []byte
 	db        ethdb.Database
 
@@ -69,6 +71,7 @@ func (c *ConsensusCmd) Default() {
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
+	c.MevBoostAddr = ""
 }
 
 func (c *ConsensusCmd) Help() string {
@@ -95,6 +98,15 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	client, err := rpc.DialContext(ctx, c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err
+	}
+
+	if c.MevBoostAddr != "" {
+		// Connect to execution client engine api
+		mevboost, err := rpc.DialContext(ctx, c.MevBoostAddr, c.jwtSecret)
+		if err != nil {
+			return err
+		}
+		c.mevboost = mevboost
 	}
 
 	c.ethashCfg = ethash.Config{
@@ -379,11 +391,33 @@ func (c *ConsensusCmd) RunNode() {
 func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId PayloadID, slot uint64, consensusFail bool) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
-	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
-	if err != nil {
-		log.WithError(err).Error("Failed to get payload")
-		return
+
+	var payload *ExecutionPayloadV1
+	var err error
+	if c.mevboost != nil {
+		payloadHeader, err := GetPayloadHeader(c.ctx, c.mevboost, log, payloadId)
+		if err != nil {
+			log.WithError(err).Error("Failed to get payload header from mev-boost")
+			return
+		}
+
+		payload, err = c.proposePayload(log, payloadHeader)
+		if err != nil {
+			log.WithError(err).Error("Failed to propose payload from mev-boost")
+			return
+		} else {
+			log.WithField("blockhash", payloadHeader.BlockHash).Debug("Proposed payload header in consensus mock world")
+		}
+
+	} else {
+		payload, err = GetPayloadV1(c.ctx, c.engine, log, payloadId)
+
+		if err != nil {
+			log.WithError(err).Error("Failed to get payload")
+			return
+		}
 	}
+
 	if err := c.ValidateTimestamp(uint64(payload.Timestamp), slot); err != nil {
 		log.WithError(err).Error("Payload has bad timestamp")
 		return
@@ -412,6 +446,13 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 	} else {
 		log.WithField("status", res.Status).Error("Unrecognized execution status")
 	}
+}
+
+func (c *ConsensusCmd) proposePayload(log logrus.Ext1FieldLogger, header *ExecutionPayloadHeaderV1) (*ExecutionPayloadV1, error) {
+	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
+	defer cancel()
+
+	return ProposePayload(ctx, c.mevboost, log, header)
 }
 
 func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {

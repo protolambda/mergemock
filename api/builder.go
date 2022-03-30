@@ -41,8 +41,17 @@ type BlindedBeaconBlockBody struct {
 	ExecutionPayload ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
 }
 
-func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadHeaderV1, error) {
+type SignedBuilderReceipt struct {
+	Message   *BuilderReceipt `json:"message"`
+	Signature string          `json:"signature"`
+}
 
+type BuilderReceipt struct {
+	PayloadHeader    ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
+	FeeRecipientDiff Uint256Quantity          `json:"feeRecipientDiff"`
+}
+
+func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadHeaderV1, error) {
 	e := log.WithField("payload_id", payloadId)
 	e.Debug("getting payload")
 	var result ExecutionPayloadHeaderV1

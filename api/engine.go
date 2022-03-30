@@ -302,7 +302,7 @@ func BlockToPayload(bl *types.Block) (*ExecutionPayloadV1, error) {
 	}, nil
 }
 
-func decodeTransactions(enc []Data) ([]*types.Transaction, error) {
+func DecodeTransactions(enc []Data) ([]*types.Transaction, error) {
 	var txs = make([]*types.Transaction, len(enc))
 	for i, encTx := range enc {
 		var tx types.Transaction

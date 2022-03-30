@@ -57,12 +57,13 @@ type EngineCmd struct {
 	LogCmd         `ask:".log" help:"Change logger configuration"`
 	TraceLogConfig `ask:".trace" help:"Tracing options"`
 
-	close  chan struct{}
-	log    logrus.Ext1FieldLogger
-	ctx    context.Context
-	rpcSrv *gethRpc.Server
-	srv    *http.Server
-	wsSrv  *http.Server // upgrades to websocket rpc
+	close   chan struct{}
+	log     logrus.Ext1FieldLogger
+	ctx     context.Context
+	backend *EngineBackend
+	rpcSrv  *gethRpc.Server
+	srv     *http.Server
+	wsSrv   *http.Server // upgrades to websocket rpc
 
 	jwtSecret []byte
 }
@@ -104,7 +105,8 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 	if err != nil {
 		c.log.WithField("err", err).Fatal("Unable to initialize backend")
 	}
-	c.startRPC(ctx, backend)
+	c.backend = backend
+	c.startRPC(ctx)
 	go c.RunNode()
 	return nil
 }
@@ -169,14 +171,18 @@ func (c *EngineCmd) makeMockChain() (*MockChain, error) {
 	return NewMockChain(c.log, posEngine, c.GenesisPath, db, &c.TraceLogConfig)
 }
 
-func (c *EngineCmd) startRPC(ctx context.Context, backend *EngineBackend) {
+func (c *EngineCmd) mockChain() *MockChain {
+	return c.backend.mockChain
+}
+
+func (c *EngineCmd) startRPC(ctx context.Context) {
 	c.rpcSrv = gethRpc.NewServer()
-	c.rpcSrv.RegisterName("engine", backend)
+	c.rpcSrv.RegisterName("engine", c.backend)
 	apis := []gethRpc.API{
 		{
 			Namespace:     "engine",
 			Version:       "1.0",
-			Service:       backend,
+			Service:       c.backend,
 			Public:        true,
 			Authenticated: true,
 		},

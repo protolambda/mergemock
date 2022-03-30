@@ -11,11 +11,11 @@ import (
 
 type ExecutionPayloadHeaderV1 struct {
 	ParentHash       common.Hash     `json:"parentHash"`
-	Coinbase         common.Address  `json:"coinbase"`
+	FeeRecipient     common.Address  `json:"feeRecipient"`
 	StateRoot        Bytes32         `json:"stateRoot"`
-	ReceiptRoot      Bytes32         `json:"receiptRoot"`
+	ReceiptsRoot     Bytes32         `json:"receiptsRoot"`
 	LogsBloom        Bytes256        `json:"logsBloom"`
-	Random           Bytes32         `json:"random"`
+	PrevRandao       Bytes32         `json:"prevRandao"`
 	BlockNumber      Uint64Quantity  `json:"blockNumber"`
 	GasLimit         Uint64Quantity  `json:"gasLimit"`
 	GasUsed          Uint64Quantity  `json:"gasUsed"`

@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
-	"mergemock/api"
 	. "mergemock/api"
 	"net"
 	"net/http"
@@ -20,12 +19,11 @@ import (
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/trie"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/sirupsen/logrus"
 )
 
-type RelayerCmd struct {
+type RelayCmd struct {
 	// connectivity options
 	ListenAddr string   `ask:"--listen-addr" help:"Address to bind RPC HTTP server to"`
 	Cors       []string `ask:"--cors" help:"List of allowable origins (CORS http header)"`
@@ -46,7 +44,7 @@ type RelayerCmd struct {
 	srv    *http.Server
 }
 
-func (r *RelayerCmd) Default() {
+func (r *RelayCmd) Default() {
 	r.ListenAddr = "127.0.0.1:28545"
 	r.Cors = []string{"*"}
 
@@ -56,16 +54,16 @@ func (r *RelayerCmd) Default() {
 	r.Timeout.Idle = 5 * time.Minute
 }
 
-func (r *RelayerCmd) Help() string {
+func (r *RelayCmd) Help() string {
 	return "Run a mock relayer."
 }
 
-func (r *RelayerCmd) Run(ctx context.Context, args ...string) error {
+func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 	if err := r.initLogger(ctx); err != nil {
 		// Logger wasn't initialized so we can't log. Error out instead.
 		return err
 	}
-	backend, err := NewRelayerBackend(r.log)
+	backend, err := NewRelayBackend(r.log)
 	if err != nil {
 		r.log.WithField("err", err).Fatal("Unable to initialize backend")
 	}
@@ -77,7 +75,7 @@ func (r *RelayerCmd) Run(ctx context.Context, args ...string) error {
 	return nil
 }
 
-func (r *RelayerCmd) RunNode() {
+func (r *RelayCmd) RunNode() {
 	r.log.Info("started")
 	go r.srv.ListenAndServe()
 	for {
@@ -90,14 +88,14 @@ func (r *RelayerCmd) RunNode() {
 	}
 }
 
-func (r *RelayerCmd) Close() error {
+func (r *RelayCmd) Close() error {
 	if r.close != nil {
 		r.close <- struct{}{}
 	}
 	return nil
 }
 
-func (r *RelayerCmd) initLogger(ctx context.Context) error {
+func (r *RelayCmd) initLogger(ctx context.Context) error {
 	logr, err := r.LogCmd.Create()
 	if err != nil {
 		return err
@@ -108,7 +106,7 @@ func (r *RelayerCmd) initLogger(ctx context.Context) error {
 	return nil
 }
 
-func (r *RelayerCmd) startRPC(ctx context.Context, backend *RelayerBackend) {
+func (r *RelayCmd) startRPC(ctx context.Context, backend *RelayBackend) {
 	r.rpcSrv = gethRpc.NewServer()
 	r.rpcSrv.RegisterName("relay", backend)
 	apis := []gethRpc.API{
@@ -152,14 +150,14 @@ func (r *RelayerCmd) startRPC(ctx context.Context, backend *RelayerBackend) {
 	}
 }
 
-type RelayerBackend struct {
+type RelayBackend struct {
 	log              logrus.Ext1FieldLogger
 	engine           *EngineCmd
 	payloadIdCounter uint64
 	recentPayloads   *lru.Cache
 }
 
-func NewRelayerBackend(log logrus.Ext1FieldLogger) (*RelayerBackend, error) {
+func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	engine := &EngineCmd{}
 	engine.Default()
 	engine.LogCmd.Default()
@@ -169,10 +167,10 @@ func NewRelayerBackend(log logrus.Ext1FieldLogger) (*RelayerBackend, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RelayerBackend{log, engine, 0, cache}, nil
+	return &RelayBackend{log, engine, 0, cache}, nil
 }
 
-func (r *RelayerBackend) GetPayloadHeaderV1(ctx context.Context, id PayloadID) (*ExecutionPayloadHeaderV1, error) {
+func (r *RelayBackend) GetPayloadHeaderV1(ctx context.Context, id PayloadID) (*ExecutionPayloadHeaderV1, error) {
 	plog := r.log.WithField("payload_id", id)
 	payload, ok := r.recentPayloads.Get(id)
 	if !ok {
@@ -183,10 +181,9 @@ func (r *RelayerBackend) GetPayloadHeaderV1(ctx context.Context, id PayloadID) (
 	return payload.(*ExecutionPayloadHeaderV1), nil
 }
 
-func (r *RelayerBackend) ProposeBlindedBlockV1(ctx context.Context, block *SignedBlindedBeaconBlock, attributes *SignedBuilderReceipt) (*ExecutionPayloadV1, error) {
-	// TODO: The signed messages should be verified. It should be ensured that the signed beacon block is for a validator
+func (r *RelayBackend) ProposeBlindedBlockV1(ctx context.Context, block *SignedBlindedBeaconBlock, attributes *SignedBuilderReceipt) (*ExecutionPayloadV1, error) {
+	// TODO: The signed messages should be verified. It should ensure that the signed beacon block is for a validator
 	// in the expected slot. The attributes should be verified against the relayer's key.
-
 	hash := block.Message.Body.ExecutionPayload.BlockHash
 	plog := r.log.WithField("payload_hash", hash)
 	payload, ok := r.recentPayloads.Get(hash)
@@ -198,7 +195,7 @@ func (r *RelayerBackend) ProposeBlindedBlockV1(ctx context.Context, block *Signe
 	return payload.(*ExecutionPayloadV1), nil
 }
 
-func (r *RelayerBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceStateV1, attributes *PayloadAttributesV1) (*ForkchoiceUpdatedResult, error) {
+func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceStateV1, attributes *PayloadAttributesV1) (*ForkchoiceUpdatedResult, error) {
 	r.log.WithFields(logrus.Fields{
 		"head":       heads.HeadBlockHash,
 		"safe":       heads.SafeBlockHash,
@@ -207,7 +204,7 @@ func (r *RelayerBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkcho
 	}).Info("Forkchoice updated")
 
 	if attributes == nil {
-		return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{ExecutionValid, &heads.HeadBlockHash, ""}}, nil
+		return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
 	}
 	idU64 := atomic.AddUint64(&r.payloadIdCounter, 1)
 	var id PayloadID
@@ -241,36 +238,14 @@ func (r *RelayerBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkcho
 		return nil, err
 	}
 
-	// store in cache for later retrieval
 	header, err := PayloadToPayloadHeader(payload)
 	if err != nil {
 		return nil, err
 	}
+
+	// Store header by id and full block by hash. This mirrors the retrieval flow.
 	r.recentPayloads.Add(id, header)
 	r.recentPayloads.Add(bl.Hash(), payload)
 
-	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{ExecutionValid, &heads.HeadBlockHash, ""}, PayloadID: &id}, nil
-}
-
-func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, error) {
-	txs, err := api.DecodeTransactions(p.Transactions)
-	if err != nil {
-		return nil, err
-	}
-	return &ExecutionPayloadHeaderV1{
-		ParentHash:       p.ParentHash,
-		FeeRecipient:     p.FeeRecipient,
-		StateRoot:        p.StateRoot,
-		ReceiptsRoot:     p.ReceiptsRoot,
-		LogsBloom:        p.LogsBloom,
-		PrevRandao:       p.PrevRandao,
-		BlockNumber:      p.BlockNumber,
-		GasLimit:         p.GasLimit,
-		GasUsed:          p.GasUsed,
-		Timestamp:        p.Timestamp,
-		ExtraData:        p.ExtraData,
-		BaseFeePerGas:    p.BaseFeePerGas,
-		BlockHash:        p.BlockHash,
-		TransactionsRoot: Bytes32(types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))),
-	}, nil
+	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

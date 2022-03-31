@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"log"
 	. "mergemock/api"
-	"net"
+	"mergemock/rpc"
 	"net/http"
+
 	"sync/atomic"
 	"time"
 
@@ -16,23 +16,16 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
-	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/sirupsen/logrus"
 )
 
 type RelayCmd struct {
 	// connectivity options
-	ListenAddr string   `ask:"--listen-addr" help:"Address to bind RPC HTTP server to"`
-	Cors       []string `ask:"--cors" help:"List of allowable origins (CORS http header)"`
-	Timeout    struct {
-		Read       time.Duration `ask:"--read" help:"Timeout for body reads. None if 0."`
-		ReadHeader time.Duration `ask:"--read-header" help:"Timeout for header reads. None if 0."`
-		Write      time.Duration `ask:"--write" help:"Timeout for writes. None if 0."`
-		Idle       time.Duration `ask:"--idle" help:"Timeout to disconnect idle client connections. None if 0."`
-	} `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
+	ListenAddr string      `ask:"--listen-addr" help:"Address to bind RPC HTTP server to"`
+	Cors       []string    `ask:"--cors" help:"List of allowable origins (CORS http header)"`
+	Timeout    rpc.Timeout `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
 
 	// embed logger options
 	LogCmd `ask:".log" help:"Change logger configuration"`
@@ -40,7 +33,7 @@ type RelayCmd struct {
 	close  chan struct{}
 	log    logrus.Ext1FieldLogger
 	ctx    context.Context
-	rpcSrv *gethRpc.Server
+	rpcSrv *rpc.Server
 	srv    *http.Server
 }
 
@@ -107,47 +100,12 @@ func (r *RelayCmd) initLogger(ctx context.Context) error {
 }
 
 func (r *RelayCmd) startRPC(ctx context.Context, backend *RelayBackend) {
-	r.rpcSrv = gethRpc.NewServer()
-	r.rpcSrv.RegisterName("relay", backend)
-	apis := []gethRpc.API{
-		{
-			Namespace:     "relay",
-			Version:       "1.0",
-			Service:       backend,
-			Public:        true,
-			Authenticated: true,
-		},
+	srv, err := rpc.NewServer("relay", backend, true)
+	if err != nil {
+		r.log.Fatal(err)
 	}
-	if err := node.RegisterApis(apis, []string{"relay"}, r.rpcSrv, false); err != nil {
-		r.log.WithField("err", err).Fatal("could not register api")
-	}
-
-	httpRpcHandler := node.NewHTTPHandlerStack(r.rpcSrv, r.Cors, nil, nil)
-	mux := http.NewServeMux()
-	mux.Handle("/", httpRpcHandler)
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(400)
-		w.Write([]byte("wrong port, use the websocket port"))
-		r.log.WithField("addr", req.RemoteAddr).Warn("User tried to connect to websocket on HTTP port")
-	})
-	logHttp := r.log.WithField("type", "http")
-	r.srv = &http.Server{
-		Addr:              r.ListenAddr,
-		Handler:           mux,
-		ReadTimeout:       r.Timeout.Read,
-		ReadHeaderTimeout: r.Timeout.ReadHeader,
-		WriteTimeout:      r.Timeout.Write,
-		IdleTimeout:       r.Timeout.Idle,
-		ConnState: func(conn net.Conn, state http.ConnState) {
-			e := logHttp.WithField("addr", conn.RemoteAddr().String())
-			e.WithField("state", state.String())
-			e.Debug("client changed connection state")
-		},
-		ErrorLog: log.New(logHttp.Writer(), "", 0),
-		BaseContext: func(listener net.Listener) context.Context {
-			return ctx
-		},
-	}
+	r.rpcSrv = srv
+	r.srv = rpc.NewHTTPServer(ctx, r.log, r.rpcSrv, r.ListenAddr, r.Timeout, r.Cors)
 }
 
 type RelayBackend struct {
@@ -175,7 +133,7 @@ func (r *RelayBackend) GetPayloadHeaderV1(ctx context.Context, id PayloadID) (*E
 	payload, ok := r.recentPayloads.Get(id)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpcError{err: fmt.Errorf("unknown payload %d", id), id: UnavailablePayload}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
 	}
 	plog.Info("Consensus client retrieved prepared payload header")
 	return payload.(*ExecutionPayloadHeaderV1), nil
@@ -189,7 +147,7 @@ func (r *RelayBackend) ProposeBlindedBlockV1(ctx context.Context, block *SignedB
 	payload, ok := r.recentPayloads.Get(hash)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpcError{err: fmt.Errorf("unknown payload %d", hash), id: UnavailablePayload}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", hash), Id: int(UnavailablePayload)}
 	}
 	plog.Info("Consensus client retrieved prepared payload header")
 	return payload.(*ExecutionPayloadV1), nil

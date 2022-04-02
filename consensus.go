@@ -393,7 +393,7 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final Bytes32, attrib
 	if result.Status.Status != ExecutionValid {
 		c.log.WithField("status", result.Status).Error("Update not considered valid")
 	}
-	if c.builder != nil {
+	if c.builder != nil && attributes != nil {
 		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
 		if result.Status.Status != ExecutionValid {
 			c.log.WithField("status", result.Status).Error("Update not considered valid")

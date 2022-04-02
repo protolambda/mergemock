@@ -5,7 +5,9 @@ import (
 	"mergemock/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,8 +43,17 @@ type BlindedBeaconBlockBody struct {
 	ExecutionPayload ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
 }
 
-func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadHeaderV1, error) {
+type SignedBuilderReceipt struct {
+	Message   *BuilderReceipt `json:"message"`
+	Signature string          `json:"signature"`
+}
 
+type BuilderReceipt struct {
+	PayloadHeader    ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
+	FeeRecipientDiff Uint256Quantity          `json:"feeRecipientDiff"`
+}
+
+func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadHeaderV1, error) {
 	e := log.WithField("payload_id", payloadId)
 	e.Debug("getting payload")
 	var result ExecutionPayloadHeaderV1
@@ -91,4 +102,27 @@ func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	}
 	e.Debug("Received proposed payload")
 	return &result, nil
+}
+
+func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, error) {
+	txs, err := decodeTransactions(p.Transactions)
+	if err != nil {
+		return nil, err
+	}
+	return &ExecutionPayloadHeaderV1{
+		ParentHash:       p.ParentHash,
+		FeeRecipient:     p.FeeRecipient,
+		StateRoot:        p.StateRoot,
+		ReceiptsRoot:     p.ReceiptsRoot,
+		LogsBloom:        p.LogsBloom,
+		PrevRandao:       p.PrevRandao,
+		BlockNumber:      p.BlockNumber,
+		GasLimit:         p.GasLimit,
+		GasUsed:          p.GasUsed,
+		Timestamp:        p.Timestamp,
+		ExtraData:        p.ExtraData,
+		BaseFeePerGas:    p.BaseFeePerGas,
+		BlockHash:        p.BlockHash,
+		TransactionsRoot: Bytes32(types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))),
+	}, nil
 }

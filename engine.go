@@ -5,9 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
-	"log"
 	. "mergemock/api"
-	"net"
+	"mergemock/rpc"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -17,23 +16,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/sirupsen/logrus"
 )
-
-// received message isn't a valid request
-type rpcError struct {
-	err error
-	id  ErrorCode
-}
-
-func (e *rpcError) ErrorCode() int { return int(e.id) }
-
-func (e *rpcError) Error() string { return e.err.Error() }
 
 type EngineCmd struct {
 	// chain options
@@ -43,26 +31,22 @@ type EngineCmd struct {
 	JwtSecretPath string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
 
 	// connectivity options
-	ListenAddr    string   `ask:"--listen-addr" help:"Address to bind RPC HTTP server to"`
-	WebsocketAddr string   `ask:"--ws-addr" help:"Address to serve /ws endpoint on for websocket JSON-RPC"`
-	Cors          []string `ask:"--cors" help:"List of allowable origins (CORS http header)"`
-	Timeout       struct {
-		Read       time.Duration `ask:"--read" help:"Timeout for body reads. None if 0."`
-		ReadHeader time.Duration `ask:"--read-header" help:"Timeout for header reads. None if 0."`
-		Write      time.Duration `ask:"--write" help:"Timeout for writes. None if 0."`
-		Idle       time.Duration `ask:"--idle" help:"Timeout to disconnect idle client connections. None if 0."`
-	} `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
+	ListenAddr    string      `ask:"--listen-addr" help:"Address to bind RPC HTTP server to"`
+	WebsocketAddr string      `ask:"--ws-addr" help:"Address to serve /ws endpoint on for websocket JSON-RPC"`
+	Cors          []string    `ask:"--cors" help:"List of allowable origins (CORS http header)"`
+	Timeout       rpc.Timeout `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
 
 	// embed logger options
 	LogCmd         `ask:".log" help:"Change logger configuration"`
 	TraceLogConfig `ask:".trace" help:"Tracing options"`
 
-	close  chan struct{}
-	log    logrus.Ext1FieldLogger
-	ctx    context.Context
-	rpcSrv *gethRpc.Server
-	srv    *http.Server
-	wsSrv  *http.Server // upgrades to websocket rpc
+	close   chan struct{}
+	log     logrus.Ext1FieldLogger
+	ctx     context.Context
+	backend *EngineBackend
+	rpcSrv  *gethRpc.Server
+	srv     *http.Server
+	wsSrv   *http.Server // upgrades to websocket rpc
 
 	jwtSecret []byte
 }
@@ -104,7 +88,8 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 	if err != nil {
 		c.log.WithField("err", err).Fatal("Unable to initialize backend")
 	}
-	c.startRPC(ctx, backend)
+	c.backend = backend
+	c.startRPC(ctx)
 	go c.RunNode()
 	return nil
 }
@@ -169,71 +154,18 @@ func (c *EngineCmd) makeMockChain() (*MockChain, error) {
 	return NewMockChain(c.log, posEngine, c.GenesisPath, db, &c.TraceLogConfig)
 }
 
-func (c *EngineCmd) startRPC(ctx context.Context, backend *EngineBackend) {
-	c.rpcSrv = gethRpc.NewServer()
-	c.rpcSrv.RegisterName("engine", backend)
-	apis := []gethRpc.API{
-		{
-			Namespace:     "engine",
-			Version:       "1.0",
-			Service:       backend,
-			Public:        true,
-			Authenticated: true,
-		},
-	}
-	if err := node.RegisterApis(apis, []string{"engine"}, c.rpcSrv, false); err != nil {
-		c.log.WithField("err", err).Fatal("could not register api")
-	}
+func (c *EngineCmd) mockChain() *MockChain {
+	return c.backend.mockChain
+}
 
-	httpRpcHandler := node.NewHTTPHandlerStack(c.rpcSrv, c.Cors, nil, c.jwtSecret[:])
-	mux := http.NewServeMux()
-	mux.Handle("/", httpRpcHandler)
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(400)
-		w.Write([]byte("wrong port, use the websocket port"))
-		c.log.WithField("addr", r.RemoteAddr).Warn("User tried to connect to websocket on HTTP port")
-	})
-	logHttp := c.log.WithField("type", "http")
-	c.srv = &http.Server{
-		Addr:              c.ListenAddr,
-		Handler:           mux,
-		ReadTimeout:       c.Timeout.Read,
-		ReadHeaderTimeout: c.Timeout.ReadHeader,
-		WriteTimeout:      c.Timeout.Write,
-		IdleTimeout:       c.Timeout.Idle,
-		ConnState: func(conn net.Conn, state http.ConnState) {
-			e := logHttp.WithField("addr", conn.RemoteAddr().String())
-			e.WithField("state", state.String())
-			e.Debug("client changed connection state")
-		},
-		ErrorLog: log.New(logHttp.Writer(), "", 0),
-		BaseContext: func(listener net.Listener) context.Context {
-			return ctx
-		},
+func (c *EngineCmd) startRPC(ctx context.Context) {
+	rpcSrv, err := rpc.NewServer("engine", c.backend, true)
+	if err != nil {
+		c.log.Fatal(err)
 	}
-
-	wsHandler := node.NewWSHandlerStack(c.rpcSrv.WebsocketHandler(c.Cors), c.jwtSecret)
-	wsMux := http.NewServeMux()
-	wsMux.Handle("/", wsHandler)
-	wsMux.Handle("/ws", wsHandler)
-	logWs := c.log.WithField("type", "ws")
-	c.wsSrv = &http.Server{
-		Addr:              c.WebsocketAddr,
-		Handler:           wsMux,
-		ReadTimeout:       c.Timeout.Read,
-		ReadHeaderTimeout: c.Timeout.ReadHeader,
-		WriteTimeout:      c.Timeout.Write,
-		IdleTimeout:       c.Timeout.Idle,
-		ConnState: func(conn net.Conn, state http.ConnState) {
-			e := logWs.WithField("addr", conn.RemoteAddr().String())
-			e.WithField("state", state.String())
-			e.Debug("client changed connection state")
-		},
-		ErrorLog: log.New(logWs.Writer(), "", 0),
-		BaseContext: func(listener net.Listener) context.Context {
-			return ctx
-		},
-	}
+	c.rpcSrv = rpcSrv
+	c.srv = rpc.NewHTTPServer(ctx, c.log, c.rpcSrv, c.ListenAddr, c.Timeout, c.Cors)
+	c.wsSrv = rpc.NewWSServer(ctx, c.log, c.rpcSrv, c.WebsocketAddr, c.jwtSecret, c.Timeout, c.Cors)
 }
 
 type EngineBackend struct {
@@ -257,7 +189,7 @@ func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*Execut
 	payload, ok := e.recentPayloads.Get(id)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpcError{err: fmt.Errorf("unknown payload %d", id), id: UnavailablePayload}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
 	}
 
 	plog.Info("Consensus client retrieved prepared payload")
@@ -297,7 +229,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	}).Info("Forkchoice updated")
 
 	if attributes == nil {
-		return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{ExecutionValid, &heads.HeadBlockHash, ""}}, nil
+		return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
 	}
 	idU64 := atomic.AddUint64(&e.payloadIdCounter, 1)
 	var id PayloadID
@@ -334,5 +266,5 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 
-	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{ExecutionValid, &heads.HeadBlockHash, ""}, PayloadID: &id}, nil
+	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

@@ -24,6 +24,8 @@ func (c *MergeMockCmd) Cmd(route string) (cmd interface{}, err error) {
 		cmd = &ConsensusCmd{}
 	case "engine":
 		cmd = &EngineCmd{}
+	case "relay":
+		cmd = &RelayCmd{}
 	default:
 		return nil, ask.UnrecognizedErr
 	}
@@ -31,7 +33,7 @@ func (c *MergeMockCmd) Cmd(route string) (cmd interface{}, err error) {
 }
 
 func (c *MergeMockCmd) Routes() []string {
-	return []string{"consensus", "engine"}
+	return []string{"consensus", "engine", "relay"}
 }
 
 type start struct {

@@ -26,6 +26,7 @@ type ExecutionPayloadHeaderV1 struct {
 	BaseFeePerGas    Uint256Quantity `json:"baseFeePerGas"`
 	BlockHash        common.Hash     `json:"blockHash"`
 	TransactionsRoot Bytes32         `json:"transactionsRoot"`
+	FeeRecipientDiff Uint256Quantity `json:"feeRecipientDiff"`
 }
 
 // See https://github.com/flashbots/mev-boost#signedblindedbeaconblock

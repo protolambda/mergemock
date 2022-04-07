@@ -369,7 +369,10 @@ func (c *ConsensusCmd) RunNode() {
 					// proposing next slot!
 					attributes = c.makePayloadAttributes(slot + 1)
 				}
-				id := c.sendForkchoiceUpdated(latest, safe, final, attributes)
+				id, err := c.sendForkchoiceUpdated(latest, safe, final, attributes)
+				if err != nil {
+					maybeExit(c.SlotBound)
+				}
 				if id != nil {
 					payloadId <- *id
 				}
@@ -388,19 +391,21 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final Bytes32, attributes *PayloadAttributesV1) *PayloadID {
+func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final Bytes32, attributes *PayloadAttributesV1) (*PayloadID, error) {
 	result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
 	if result.Status.Status != ExecutionValid {
 		c.log.WithField("status", result.Status).Error("Update not considered valid")
+		return nil, fmt.Errorf("Update not considered valid")
 	}
 	if c.builder != nil && attributes != nil {
 		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
 		if result.Status.Status != ExecutionValid {
-			c.log.WithField("status", result.Status).Error("Update not considered valid")
+			c.log.WithField("status", result.Status).Error("Update not considered valid from builder")
+			return nil, fmt.Errorf("Update not considered valid from builder")
 		}
-		return result.PayloadID
+		return result.PayloadID, nil
 	}
-	return result.PayloadID
+	return result.PayloadID, nil
 }
 
 func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/beacon"
 	"github.com/ethereum/go-ethereum/core/types"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
@@ -16,6 +17,7 @@ import (
 )
 
 type ErrorCode int
+type PayloadID beacon.PayloadID
 
 const (
 	UnavailablePayload ErrorCode = -32001
@@ -105,25 +107,6 @@ const (
 	// payload is built on parent block that does not meet ttd
 	ExecutionInvalidTerminalBlock ExecutePayloadStatus = "INVALID_TERMINAL_BLOCK"
 )
-
-// PayloadID is an identifier of the payload build process
-type PayloadID [8]byte
-
-func (b PayloadID) String() string {
-	return hexutil.Encode(b[:])
-}
-
-func (b PayloadID) MarshalText() ([]byte, error) {
-	return hexutil.Bytes(b[:]).MarshalText()
-}
-
-func (b *PayloadID) UnmarshalText(input []byte) error {
-	err := hexutil.UnmarshalFixedText("PayloadID", input, b[:])
-	if err != nil {
-		return fmt.Errorf("invalid payload id %q: %w", input, err)
-	}
-	return nil
-}
 
 type PayloadStatusV1 struct {
 	Status          ExecutePayloadStatus `json:"status"`

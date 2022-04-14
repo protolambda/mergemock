@@ -162,7 +162,7 @@ func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoic
 	}).Info("Forkchoice updated")
 
 	if attributes == nil {
-		return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
+		return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
 	}
 	idU64 := atomic.AddUint64(&r.payloadIdCounter, 1)
 	var id PayloadID
@@ -205,5 +205,5 @@ func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoic
 	r.recentPayloads.Add(id, header)
 	r.recentPayloads.Add(bl.Hash(), payload)
 
-	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
+	return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

@@ -397,25 +397,17 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final Bytes32, attrib
 		c.log.WithField("status", result.Status).Error("Update not considered valid")
 		return nil, fmt.Errorf("Update not considered valid")
 	}
-	if c.builder != nil && attributes != nil {
-		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
-		if result.Status.Status != ExecutionValid {
-			c.log.WithField("status", result.Status).Error("Update not considered valid from builder")
-			return nil, fmt.Errorf("Update not considered valid from builder")
-		}
-		return result.PayloadID, nil
-	}
 	return result.PayloadID, nil
 }
 
 func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
 	if c.builder != nil {
-		header, err := GetPayloadHeader(c.ctx, c.builder, log, payloadId)
+		header, err := BuilderGetHeader(c.ctx, c.builder, log, c.mockChain.CurrentHeader().Hash())
 		if err != nil {
 			return nil, err
 		}
-		payload, err := ProposePayload(ctx, c.builder, log, header)
+		payload, err := BuilderGetPayload(ctx, c.builder, log, header)
 		if err != nil {
 			return nil, err
 		}

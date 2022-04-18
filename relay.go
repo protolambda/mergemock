@@ -2,22 +2,16 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
+	"math/big"
 	. "mergemock/api"
 	"mergemock/rpc"
 	"net/http"
 
-	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
 	lru "github.com/hashicorp/golang-lru"
+	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
 
@@ -100,7 +94,7 @@ func (r *RelayCmd) initLogger(ctx context.Context) error {
 }
 
 func (r *RelayCmd) startRPC(ctx context.Context, backend *RelayBackend) {
-	srv, err := rpc.NewServer("relay", backend, true)
+	srv, err := rpc.NewServer("builder", backend, true)
 	if err != nil {
 		r.log.Fatal(err)
 	}
@@ -109,41 +103,49 @@ func (r *RelayCmd) startRPC(ctx context.Context, backend *RelayBackend) {
 }
 
 type RelayBackend struct {
-	log              logrus.Ext1FieldLogger
-	engine           *EngineCmd
-	payloadIdCounter uint64
-	recentPayloads   *lru.Cache
+	log            logrus.Ext1FieldLogger
+	engine         *EngineCmd
+	recentPayloads *lru.Cache
 }
 
 func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	engine := &EngineCmd{}
 	engine.Default()
 	engine.LogCmd.Default()
-	engine.ListenAddr = "127.0.0.1:28546"
-	engine.WebsocketAddr = "127.0.0.1:28547"
+	engine.ListenAddr = "127.0.0.1:8550"
+	engine.WebsocketAddr = "127.0.0.1:8552"
 	cache, err := lru.New(10)
+
 	if err != nil {
 		return nil, err
 	}
-	return &RelayBackend{log, engine, 0, cache}, nil
+	return &RelayBackend{log, engine, cache}, nil
 }
 
-func (r *RelayBackend) GetPayloadHeaderV1(ctx context.Context, id PayloadID) (*ExecutionPayloadHeaderV1, error) {
-	plog := r.log.WithField("payload_id", id)
-	payload, ok := r.recentPayloads.Get(id)
+func (r *RelayBackend) GetHeaderV1(ctx context.Context, blockHash Bytes32) (*GetHeaderResponse, error) {
+	id := r.engine.backend.mostRecentId
+	plog := r.log.WithField("payload_id", id).WithField("blockhash", blockHash)
+	payload, ok := r.engine.backend.recentPayloads.Get(r.engine.backend.mostRecentId)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
 		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
 	}
+	payloadHeader, err := PayloadToPayloadHeader(payload.(*ExecutionPayloadV1))
+	r.recentPayloads.Add(payloadHeader.BlockHash, payload)
+	if err != nil {
+		return nil, err
+	}
+	val, _ := uint256.FromBig(big.NewInt(1))
+
 	plog.Info("Consensus client retrieved prepared payload header")
-	return payload.(*ExecutionPayloadHeaderV1), nil
+	return &GetHeaderResponse{Header: *payloadHeader, Value: *val}, nil
 }
 
-func (r *RelayBackend) ProposeBlindedBlockV1(ctx context.Context, block *SignedBlindedBeaconBlock, attributes *SignedBuilderReceipt) (*ExecutionPayloadV1, error) {
+func (r *RelayBackend) GetPayloadV1(ctx context.Context, block *SignedBlindedBeaconBlock, attributes *SignedBuilderReceipt) (*ExecutionPayloadV1, error) {
 	// TODO: The signed messages should be verified. It should ensure that the signed beacon block is for a validator
 	// in the expected slot. The attributes should be verified against the relayer's key.
 	hash := block.Message.Body.ExecutionPayload.BlockHash
-	plog := r.log.WithField("payload_hash", hash)
+	plog := r.log.WithField("blockhash", hash)
 	payload, ok := r.recentPayloads.Get(hash)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
@@ -151,59 +153,4 @@ func (r *RelayBackend) ProposeBlindedBlockV1(ctx context.Context, block *SignedB
 	}
 	plog.Info("Consensus client retrieved prepared payload header")
 	return payload.(*ExecutionPayloadV1), nil
-}
-
-func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceStateV1, attributes *PayloadAttributesV1) (*ForkchoiceUpdatedResult, error) {
-	r.log.WithFields(logrus.Fields{
-		"head":       heads.HeadBlockHash,
-		"safe":       heads.SafeBlockHash,
-		"finalized":  heads.FinalizedBlockHash,
-		"attributes": attributes,
-	}).Info("Forkchoice updated")
-
-	if attributes == nil {
-		return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
-	}
-	idU64 := atomic.AddUint64(&r.payloadIdCounter, 1)
-	var id PayloadID
-	binary.BigEndian.PutUint64(id[:], idU64)
-
-	plog := r.log.WithField("payload_id", id)
-	plog.WithField("attributes", attributes).Info("Preparing new payload")
-
-	gasLimit := r.engine.mockChain().gspec.GasLimit
-	txsCreator := TransactionsCreator{nil, func(config *params.ChainConfig, bc core.ChainContext,
-		statedb *state.StateDB, header *types.Header, cfg vm.Config, accounts []TestAccount) []*types.Transaction {
-		// empty payload
-		// TODO: maybe vary these a little?
-		return nil
-	}}
-	extraData := []byte{}
-
-	bl, err := r.engine.mockChain().AddNewBlock(common.BytesToHash(heads.HeadBlockHash[:]), attributes.SuggestedFeeRecipient, uint64(attributes.Timestamp),
-		gasLimit, txsCreator, attributes.PrevRandao, extraData, nil, false)
-
-	if err != nil {
-		// TODO: proper error codes
-		plog.WithError(err).Error("Failed to create block, cannot build new payload")
-		return nil, err
-	}
-
-	payload, err := BlockToPayload(bl)
-	if err != nil {
-		plog.WithError(err).Error("Failed to convert block to payload")
-		// TODO: proper error codes
-		return nil, err
-	}
-
-	header, err := PayloadToPayloadHeader(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	// Store header by id and full block by hash. This mirrors the retrieval flow.
-	r.recentPayloads.Add(id, header)
-	r.recentPayloads.Add(bl.Hash(), payload)
-
-	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

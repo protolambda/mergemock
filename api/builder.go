@@ -29,6 +29,13 @@ type ExecutionPayloadHeaderV1 struct {
 	FeeRecipientDiff Uint256Quantity `json:"feeRecipientDiff"`
 }
 
+type GetHeaderResponse struct {
+	Header    ExecutionPayloadHeaderV1 `json:"header"`
+	Value     Uint256Quantity          `json:"value"`
+	PublicKey BytesMax32               `json:"publicKey"`
+	Signature BytesMax32               `json:"signature"`
+}
+
 // See https://github.com/flashbots/mev-boost#signedblindedbeaconblock
 type SignedBlindedBeaconBlock struct {
 	Message   *BlindedBeaconBlock `json:"message"`
@@ -54,19 +61,20 @@ type BuilderReceipt struct {
 	FeeRecipientDiff Uint256Quantity          `json:"feeRecipientDiff"`
 }
 
-func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadHeaderV1, error) {
-	e := log.WithField("payload_id", payloadId)
+func BuilderGetHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, blockHash common.Hash) (*ExecutionPayloadHeaderV1, error) {
+	e := log.WithField("blockHash", blockHash)
 	e.Debug("getting payload")
-	var result ExecutionPayloadHeaderV1
-	err := cl.CallContext(ctx, &result, "builder_getPayloadHeaderV1", payloadId)
+	var result GetHeaderResponse
+
+	err := cl.CallContext(ctx, &result, "builder_getHeaderV1", blockHash)
 	if err != nil {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(gethRpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
 			if code != UnavailablePayload {
-				e.WithField("code", code).Warn("unexpected error code in get-payload response")
+				e.WithField("code", code).Warn("unexpected error code in get-payload header response")
 			} else {
-				e.Warn("unavailable payload in get-payload request")
+				e.Warn("unavailable payload in get-payload header request")
 			}
 		} else {
 			e.Error("failed to get payload header")
@@ -74,10 +82,10 @@ func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 		return nil, err
 	}
 	e.Debug("Received payload")
-	return &result, nil
+	return &result.Header, nil
 }
 
-func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadHeaderV1) (*ExecutionPayloadV1, error) {
+func BuilderGetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadHeaderV1) (*ExecutionPayloadV1, error) {
 	e := log.WithField("block_hash", header.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutionPayloadV1
@@ -85,7 +93,7 @@ func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLog
 	beaconBlock := BlindedBeaconBlock{
 		Body: BlindedBeaconBlockBody{ExecutionPayload: *header},
 	}
-	err := cl.CallContext(ctx, &result, "builder_proposeBlindedBlockV1", SignedBlindedBeaconBlock{Message: &beaconBlock})
+	err := cl.CallContext(ctx, &result, "builder_getPayloadV1", SignedBlindedBeaconBlock{Message: &beaconBlock}, nil)
 
 	if err != nil {
 		e = e.WithError(err)

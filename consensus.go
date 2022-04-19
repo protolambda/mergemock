@@ -389,14 +389,6 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, at
 		c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
 		return nil, fmt.Errorf("update not considered valid")
 	}
-	if c.builder != nil && attributes != nil {
-		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
-		if result.PayloadStatus.Status != ExecutionValid {
-			c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
-			return nil, fmt.Errorf("update not considered valid from builder")
-		}
-		return result.PayloadID, nil
-	}
 	return result.PayloadID, nil
 }
 

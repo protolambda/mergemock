@@ -46,6 +46,28 @@ type executionPayloadHeaderMarshalling struct {
 	LogsBloom     hexutil.Bytes
 }
 
+//go:generate go run github.com/fjl/gencodec -type GetHeaderResponseMessage -field-override getHeaderResponseMessageMarshalling -out gen_ghrm.go
+type GetHeaderResponseMessage struct {
+	Header ExecutionPayloadHeaderV1 `json:"header"`
+	Value  *big.Int                 `json:"value"`
+}
+
+type getHeaderResponseMessageMarshalling struct {
+	Value *hexutil.Big
+}
+
+//go:generate go run github.com/fjl/gencodec -type GetHeaderResponse -field-override getHeaderResponseMarshalling -out gen_ghr.go
+type GetHeaderResponse struct {
+	Message   GetHeaderResponseMessage `json:"message"`
+	PublicKey []byte                   `json:"publicKey"`
+	Signature []byte                   `json:"signature"`
+}
+
+type getHeaderResponseMarshalling struct {
+	PublicKey hexutil.Bytes
+	Signature hexutil.Bytes
+}
+
 // See https://github.com/flashbots/mev-boost#signedblindedbeaconblock
 type SignedBlindedBeaconBlock struct {
 	Message   *BlindedBeaconBlock `json:"message"`
@@ -76,7 +98,7 @@ func BuilderGetHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 	e.Debug("getting payload")
 	var result GetHeaderResponse
 
-	err := cl.CallContext(ctx, &result, "builder_getHeaderV1", blockHash)
+	err := cl.CallContext(ctx, &result, "builder_getHeaderV1", blockHash.Hex())
 	if err != nil {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(gethRpc.Error); ok {

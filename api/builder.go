@@ -3,42 +3,47 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"math/big"
 	"mergemock/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
+	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
 
+//go:generate go run github.com/fjl/gencodec -type ExecutionPayloadHeaderV1 -field-override executionPayloadHeaderMarshalling -out gen_edh.go
+
+// ExecutableDataV1 structure described at https://github.com/ethereum/execution-apis/src/engine/specification.md
 type ExecutionPayloadHeaderV1 struct {
-	ParentHash       common.Hash     `json:"parentHash"`
-	FeeRecipient     common.Address  `json:"feeRecipient"`
-	StateRoot        Bytes32         `json:"stateRoot"`
-	ReceiptsRoot     Bytes32         `json:"receiptsRoot"`
-	LogsBloom        Bytes256        `json:"logsBloom"`
-	PrevRandao       Bytes32         `json:"prevRandao"`
-	BlockNumber      Uint64Quantity  `json:"blockNumber"`
-	GasLimit         Uint64Quantity  `json:"gasLimit"`
-	GasUsed          Uint64Quantity  `json:"gasUsed"`
-	Timestamp        Uint64Quantity  `json:"timestamp"`
-	ExtraData        BytesMax32      `json:"extraData"`
-	BaseFeePerGas    Uint256Quantity `json:"baseFeePerGas"`
-	BlockHash        common.Hash     `json:"blockHash"`
-	TransactionsRoot Bytes32         `json:"transactionsRoot"`
-	FeeRecipientDiff Uint256Quantity `json:"feeRecipientDiff"`
+	ParentHash       common.Hash    `json:"parentHash"    gencodec:"required"`
+	FeeRecipient     common.Address `json:"feeRecipient"  gencodec:"required"`
+	StateRoot        common.Hash    `json:"stateRoot"     gencodec:"required"`
+	ReceiptsRoot     common.Hash    `json:"receiptsRoot"  gencodec:"required"`
+	LogsBloom        []byte         `json:"logsBloom"     gencodec:"required"`
+	Random           common.Hash    `json:"prevRandao"    gencodec:"required"`
+	Number           uint64         `json:"blockNumber"   gencodec:"required"`
+	GasLimit         uint64         `json:"gasLimit"      gencodec:"required"`
+	GasUsed          uint64         `json:"gasUsed"       gencodec:"required"`
+	Timestamp        uint64         `json:"timestamp"     gencodec:"required"`
+	ExtraData        []byte         `json:"extraData"     gencodec:"required"`
+	BaseFeePerGas    *big.Int       `json:"baseFeePerGas" gencodec:"required"`
+	BlockHash        common.Hash    `json:"blockHash"     gencodec:"required"`
+	TransactionsRoot common.Hash    `json:"transactionsRoot"  gencodec:"required"`
 }
 
-type GetHeaderResponseMessage struct {
-	Header ExecutionPayloadHeaderV1 `json:"header"`
-	Value  Uint256Quantity          `json:"value"`
-}
-
-type GetHeaderResponse struct {
-	Message   GetHeaderResponseMessage `json:"message"`
-	PublicKey BytesMax32               `json:"publicKey"`
-	Signature BytesMax32               `json:"signature"`
+// JSON type overrides for executableData.
+type executionPayloadHeaderMarshalling struct {
+	Number        hexutil.Uint64
+	GasLimit      hexutil.Uint64
+	GasUsed       hexutil.Uint64
+	Timestamp     hexutil.Uint64
+	BaseFeePerGas *hexutil.Big
+	ExtraData     hexutil.Bytes
+	LogsBloom     hexutil.Bytes
 }
 
 // See https://github.com/flashbots/mev-boost#signedblindedbeaconblock
@@ -63,7 +68,7 @@ type SignedBuilderReceipt struct {
 
 type BuilderReceipt struct {
 	PayloadHeader    ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
-	FeeRecipientDiff Uint256Quantity          `json:"feeRecipientDiff"`
+	FeeRecipientDiff uint256.Int              `json:"feeRecipientDiff"`
 }
 
 func BuilderGetHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, blockHash common.Hash) (*ExecutionPayloadHeaderV1, error) {
@@ -136,14 +141,14 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, e
 		StateRoot:        p.StateRoot,
 		ReceiptsRoot:     p.ReceiptsRoot,
 		LogsBloom:        p.LogsBloom,
-		PrevRandao:       p.PrevRandao,
-		BlockNumber:      p.BlockNumber,
+		Random:           p.Random,
+		Number:           p.Number,
 		GasLimit:         p.GasLimit,
 		GasUsed:          p.GasUsed,
 		Timestamp:        p.Timestamp,
 		ExtraData:        p.ExtraData,
-		BaseFeePerGas:    p.BaseFeePerGas,
+		BaseFeePerGas:    (*big.Int)(p.BaseFeePerGas),
 		BlockHash:        p.BlockHash,
-		TransactionsRoot: Bytes32(types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))),
+		TransactionsRoot: types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil)),
 	}, nil
 }

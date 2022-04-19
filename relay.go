@@ -12,7 +12,6 @@ import (
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
-	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
 
@@ -123,7 +122,7 @@ func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	return &RelayBackend{log, engine, cache}, nil
 }
 
-func (r *RelayBackend) GetHeaderV1(ctx context.Context, blockHash Bytes32) (*GetHeaderResponse, error) {
+func (r *RelayBackend) GetHeaderV1(ctx context.Context, blockHash string) (*GetHeaderResponse, error) {
 	id := r.engine.backend.mostRecentId
 	plog := r.log.WithField("payload_id", id).WithField("blockhash", blockHash)
 	payload, ok := r.engine.backend.recentPayloads.Get(r.engine.backend.mostRecentId)
@@ -136,10 +135,9 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, blockHash Bytes32) (*Get
 	if err != nil {
 		return nil, err
 	}
-	val, _ := uint256.FromBig(big.NewInt(1))
-
+	val := big.NewInt(1)
 	plog.Info("Consensus client retrieved prepared payload header")
-	return &GetHeaderResponse{Message: GetHeaderResponseMessage{Header: *payloadHeader, Value: *val}}, nil
+	return &GetHeaderResponse{Message: GetHeaderResponseMessage{Header: *payloadHeader, Value: val}}, nil
 }
 
 func (r *RelayBackend) GetPayloadV1(ctx context.Context, block string) (*ExecutionPayloadV1, error) {

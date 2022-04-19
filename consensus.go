@@ -21,7 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 )
 
@@ -293,22 +292,15 @@ func (c *ConsensusCmd) RunNode() {
 			// Send bad hash
 			if c.RNG.Float64() < c.Freq.InvalidHashFreq {
 				c.log.Info("Sending payload with invalid hash")
-				baseFee, _ := uint256.FromBig(c.mockChain.CurrentHeader().BaseFee)
 				payload := &ExecutionPayloadV1{
 					ParentHash:    c.mockChain.CurrentHeader().Hash(),
 					FeeRecipient:  common.Address{},
-					StateRoot:     Bytes32{},
-					ReceiptsRoot:  Bytes32{},
-					LogsBloom:     Bytes256{},
-					PrevRandao:    Bytes32{},
-					BlockNumber:   Uint64Quantity(c.mockChain.CurrentHeader().Number.Uint64()),
-					GasLimit:      Uint64Quantity(c.mockChain.CurrentHeader().GasLimit),
-					GasUsed:       Uint64Quantity(0),
-					Timestamp:     Uint64Quantity(c.mockChain.CurrentHeader().Time + 1),
-					ExtraData:     BytesMax32{},
-					BaseFeePerGas: Uint256Quantity(*baseFee),
+					Number:        c.mockChain.CurrentHeader().Number.Uint64(),
+					GasLimit:      c.mockChain.CurrentHeader().GasLimit,
+					GasUsed:       0,
+					Timestamp:     c.mockChain.CurrentHeader().Time + 1,
+					BaseFeePerGas: c.mockChain.CurrentHeader().BaseFee,
 					BlockHash:     common.HexToHash("0xdeadbeef"),
-					Transactions:  []Data{},
 				}
 				go NewPayloadV1(c.ctx, c.engine, c.log, payload)
 				continue
@@ -359,9 +351,9 @@ func (c *ConsensusCmd) RunNode() {
 
 			slotLog.WithField("blockhash", block.Hash()).Debug("Built external block")
 
-			go func(log logrus.Ext1FieldLogger, block *types.Block, safe, final Bytes32) {
+			go func(log logrus.Ext1FieldLogger, block *types.Block, safe, final common.Hash) {
 				c.mockExecution(log, block)
-				latest := Bytes32(block.Hash())
+				latest := block.Hash()
 				// Note: head and safe hash are set to the same hash,
 				// until forkchoice updates are more attestation-weight aware.
 				var attributes *PayloadAttributesV1
@@ -376,7 +368,7 @@ func (c *ConsensusCmd) RunNode() {
 				if id != nil {
 					payloadId <- *id
 				}
-			}(slotLog, block, Bytes32(safeHash), Bytes32(finalizedHash))
+			}(slotLog, block, safeHash, finalizedHash)
 
 		case <-c.close:
 			c.log.Info("Closing consensus mock node")
@@ -391,11 +383,19 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final Bytes32, attributes *PayloadAttributesV1) (*PayloadID, error) {
+func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, attributes *PayloadAttributesV1) (*PayloadID, error) {
 	result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
-	if result.Status.Status != ExecutionValid {
-		c.log.WithField("status", result.Status).Error("Update not considered valid")
-		return nil, fmt.Errorf("Update not considered valid")
+	if result.PayloadStatus.Status != ExecutionValid {
+		c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
+		return nil, fmt.Errorf("update not considered valid")
+	}
+	if c.builder != nil && attributes != nil {
+		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
+		if result.PayloadStatus.Status != ExecutionValid {
+			c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
+			return nil, fmt.Errorf("update not considered valid from builder")
+		}
+		return result.PayloadID, nil
 	}
 	return result.PayloadID, nil
 }
@@ -516,10 +516,10 @@ func (c *ConsensusCmd) Close() error {
 }
 
 func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *PayloadAttributesV1 {
-	var prevRandao Bytes32
+	var prevRandao common.Hash
 	c.RNG.Read(prevRandao[:])
 	return &PayloadAttributesV1{
-		Timestamp:             Uint64Quantity(c.SlotTimestamp(slot)),
+		Timestamp:             c.SlotTimestamp(slot),
 		PrevRandao:            prevRandao,
 		SuggestedFeeRecipient: common.Address{0x13, 0x37},
 	}

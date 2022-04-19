@@ -230,7 +230,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	}).Info("Forkchoice updated")
 
 	if attributes == nil {
-		return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
+		return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
 	}
 	idU64 := atomic.AddUint64(&e.payloadIdCounter, 1)
 	var id PayloadID
@@ -268,5 +268,5 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoi
 	e.recentPayloads.Add(id, payload)
 	e.mostRecentId = id
 
-	return &ForkchoiceUpdatedResult{Status: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
+	return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

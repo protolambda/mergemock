@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	. "mergemock/api"
@@ -138,13 +139,20 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, blockHash Bytes32) (*Get
 	val, _ := uint256.FromBig(big.NewInt(1))
 
 	plog.Info("Consensus client retrieved prepared payload header")
-	return &GetHeaderResponse{Header: *payloadHeader, Value: *val}, nil
+	return &GetHeaderResponse{Message: GetHeaderResponseMessage{Header: *payloadHeader, Value: *val}}, nil
 }
 
-func (r *RelayBackend) GetPayloadV1(ctx context.Context, block *SignedBlindedBeaconBlock, attributes *SignedBuilderReceipt) (*ExecutionPayloadV1, error) {
+func (r *RelayBackend) GetPayloadV1(ctx context.Context, block string) (*ExecutionPayloadV1, error) {
 	// TODO: The signed messages should be verified. It should ensure that the signed beacon block is for a validator
 	// in the expected slot. The attributes should be verified against the relayer's key.
-	hash := block.Message.Body.ExecutionPayload.BlockHash
+	signedBlindedBlock := new(SignedBlindedBeaconBlock)
+	err := json.Unmarshal([]byte(block), signedBlindedBlock)
+	if err != nil {
+		r.log.WithError(err).Warn("Unable to unmarshal blinded block")
+		return nil, err
+	}
+
+	hash := signedBlindedBlock.Message.Body.ExecutionPayload.BlockHash
 	plog := r.log.WithField("blockhash", hash)
 	payload, ok := r.recentPayloads.Get(hash)
 	if !ok {

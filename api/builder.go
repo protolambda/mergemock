@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"mergemock/rpc"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -29,9 +30,13 @@ type ExecutionPayloadHeaderV1 struct {
 	FeeRecipientDiff Uint256Quantity `json:"feeRecipientDiff"`
 }
 
+type GetHeaderResponseMessage struct {
+	Header ExecutionPayloadHeaderV1 `json:"header"`
+	Value  Uint256Quantity          `json:"value"`
+}
+
 type GetHeaderResponse struct {
-	Header    ExecutionPayloadHeaderV1 `json:"header"`
-	Value     Uint256Quantity          `json:"value"`
+	Message   GetHeaderResponseMessage `json:"message"`
 	PublicKey BytesMax32               `json:"publicKey"`
 	Signature BytesMax32               `json:"signature"`
 }
@@ -82,7 +87,7 @@ func BuilderGetHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 		return nil, err
 	}
 	e.Debug("Received payload")
-	return &result.Header, nil
+	return &result.Message.Header, nil
 }
 
 func BuilderGetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadHeaderV1) (*ExecutionPayloadV1, error) {
@@ -93,8 +98,15 @@ func BuilderGetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	beaconBlock := BlindedBeaconBlock{
 		Body: BlindedBeaconBlockBody{ExecutionPayload: *header},
 	}
-	err := cl.CallContext(ctx, &result, "builder_getPayloadV1", SignedBlindedBeaconBlock{Message: &beaconBlock}, nil)
 
+	// TODO: SSZ-encode SignedBlindedBeaconBlock
+	encoded_block, err := json.Marshal(SignedBlindedBeaconBlock{Message: &beaconBlock})
+	if err != nil {
+		e.WithError(err).Warn("unable to marshal beacon block")
+		return nil, err
+	}
+
+	err = cl.CallContext(ctx, &result, "builder_getPayloadV1", string(encoded_block))
 	if err != nil {
 		e = e.WithError(err)
 		if rpcErr, ok := err.(gethRpc.Error); ok {

@@ -67,12 +67,12 @@ type getHeaderResponseMarshalling struct {
 	Signature hexutil.Bytes
 }
 
-// See https://github.com/flashbots/mev-boost#blindedbeaconblock
-type BlindedBeaconBlock struct {
-	Body BlindedBeaconBlockBody `json:"body"`
+// See https://github.com/ethereum/consensus-specs/blob/v1.1.6/specs/phase0/beacon-chain.md#beaconblock
+type BlindBeaconBlock struct {
+	Body BlindBeaconBlockBody `json:"body"`
 }
 
-type BlindedBeaconBlockBody struct {
+type BlindBeaconBlockBody struct {
 	ExecutionPayload ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
 }
 
@@ -116,8 +116,8 @@ func BuilderGetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	e.Debug("sending payload for execution")
 	var result ExecutionPayloadV1
 
-	block := BlindedBeaconBlock{
-		Body: BlindedBeaconBlockBody{ExecutionPayload: *header},
+	block := BlindBeaconBlock{
+		Body: BlindBeaconBlockBody{ExecutionPayload: *header},
 	}
 
 	signature := "0xab5dc3c47ea96503823f364c4c1bb747560dc8874d90acdd0cbcfe1abc5457a70ab7e8175c074ace44dead2427e6d2353184c61c6eebc3620b8cec1e9115e35e4513369d7a68d7a5dad719cb6f5a85788490f76ca3580758042da4d003ef373f"

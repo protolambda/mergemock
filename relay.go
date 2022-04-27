@@ -139,7 +139,7 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot string, pubkey stri
 	return &GetHeaderResponse{Message: GetHeaderResponseMessage{Header: *payloadHeader, Value: val}}, nil
 }
 
-func (r *RelayBackend) GetPayloadV1(ctx context.Context, block BlindedBeaconBlock, signature string) (*ExecutionPayloadV1, error) {
+func (r *RelayBackend) GetPayloadV1(ctx context.Context, block BlindBeaconBlock, signature string) (*ExecutionPayloadV1, error) {
 	// TODO: The signed messages should be verified. It should ensure that the signed beacon block is for a validator
 	// in the expected slot. The attributes should be verified against the relayer's key.
 	hash := block.Body.ExecutionPayload.BlockHash

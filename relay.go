@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	. "mergemock/api"
@@ -122,7 +121,7 @@ func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	return &RelayBackend{log, engine, cache}, nil
 }
 
-func (r *RelayBackend) GetHeaderV1(ctx context.Context, blockHash string) (*GetHeaderResponse, error) {
+func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot string, pubkey string, blockHash string) (*GetHeaderResponse, error) {
 	id := r.engine.backend.mostRecentId
 	plog := r.log.WithField("payload_id", id).WithField("blockhash", blockHash)
 	payload, ok := r.engine.backend.recentPayloads.Get(r.engine.backend.mostRecentId)
@@ -140,17 +139,10 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, blockHash string) (*GetH
 	return &GetHeaderResponse{Message: GetHeaderResponseMessage{Header: *payloadHeader, Value: val}}, nil
 }
 
-func (r *RelayBackend) GetPayloadV1(ctx context.Context, block string) (*ExecutionPayloadV1, error) {
+func (r *RelayBackend) GetPayloadV1(ctx context.Context, block BlindedBeaconBlock, signature string) (*ExecutionPayloadV1, error) {
 	// TODO: The signed messages should be verified. It should ensure that the signed beacon block is for a validator
 	// in the expected slot. The attributes should be verified against the relayer's key.
-	signedBlindedBlock := new(SignedBlindedBeaconBlock)
-	err := json.Unmarshal([]byte(block), signedBlindedBlock)
-	if err != nil {
-		r.log.WithError(err).Warn("Unable to unmarshal blinded block")
-		return nil, err
-	}
-
-	hash := signedBlindedBlock.Message.Body.ExecutionPayload.BlockHash
+	hash := block.Body.ExecutionPayload.BlockHash
 	plog := r.log.WithField("blockhash", hash)
 	payload, ok := r.recentPayloads.Get(hash)
 	if !ok {

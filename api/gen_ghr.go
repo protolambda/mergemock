@@ -14,12 +14,10 @@ var _ = (*getHeaderResponseMarshalling)(nil)
 func (g GetHeaderResponse) MarshalJSON() ([]byte, error) {
 	type GetHeaderResponse struct {
 		Message   GetHeaderResponseMessage `json:"message"`
-		PublicKey hexutil.Bytes            `json:"publicKey"`
 		Signature hexutil.Bytes            `json:"signature"`
 	}
 	var enc GetHeaderResponse
 	enc.Message = g.Message
-	enc.PublicKey = g.PublicKey
 	enc.Signature = g.Signature
 	return json.Marshal(&enc)
 }
@@ -28,7 +26,6 @@ func (g GetHeaderResponse) MarshalJSON() ([]byte, error) {
 func (g *GetHeaderResponse) UnmarshalJSON(input []byte) error {
 	type GetHeaderResponse struct {
 		Message   *GetHeaderResponseMessage `json:"message"`
-		PublicKey *hexutil.Bytes            `json:"publicKey"`
 		Signature *hexutil.Bytes            `json:"signature"`
 	}
 	var dec GetHeaderResponse
@@ -37,9 +34,6 @@ func (g *GetHeaderResponse) UnmarshalJSON(input []byte) error {
 	}
 	if dec.Message != nil {
 		g.Message = *dec.Message
-	}
-	if dec.PublicKey != nil {
-		g.PublicKey = *dec.PublicKey
 	}
 	if dec.Signature != nil {
 		g.Signature = *dec.Signature

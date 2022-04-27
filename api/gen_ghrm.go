@@ -4,6 +4,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -16,10 +17,12 @@ func (g GetHeaderResponseMessage) MarshalJSON() ([]byte, error) {
 	type GetHeaderResponseMessage struct {
 		Header ExecutionPayloadHeaderV1 `json:"header"`
 		Value  *hexutil.Big             `json:"value"`
+		Pubkey hexutil.Bytes            `json:"pubkey" gencodec:"required"`
 	}
 	var enc GetHeaderResponseMessage
 	enc.Header = g.Header
 	enc.Value = (*hexutil.Big)(g.Value)
+	enc.Pubkey = g.Pubkey
 	return json.Marshal(&enc)
 }
 
@@ -28,6 +31,7 @@ func (g *GetHeaderResponseMessage) UnmarshalJSON(input []byte) error {
 	type GetHeaderResponseMessage struct {
 		Header *ExecutionPayloadHeaderV1 `json:"header"`
 		Value  *hexutil.Big              `json:"value"`
+		Pubkey *hexutil.Bytes            `json:"pubkey" gencodec:"required"`
 	}
 	var dec GetHeaderResponseMessage
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -39,5 +43,9 @@ func (g *GetHeaderResponseMessage) UnmarshalJSON(input []byte) error {
 	if dec.Value != nil {
 		g.Value = (*big.Int)(dec.Value)
 	}
+	if dec.Pubkey == nil {
+		return errors.New("missing required field 'pubkey' for GetHeaderResponseMessage")
+	}
+	g.Pubkey = *dec.Pubkey
 	return nil
 }

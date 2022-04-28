@@ -7,8 +7,9 @@ import (
 	. "mergemock/api"
 	"mergemock/rpc"
 	"net/http"
-
 	"time"
+
+	"github.com/flashbots/mev-boost/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -123,7 +124,7 @@ func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	return &RelayBackend{log, engine, cache}, nil
 }
 
-func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, hash common.Hash) (*GetHeaderResponse, error) {
+func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, hash common.Hash) (*types.GetHeaderResponse, error) {
 	id := r.engine.backend.mostRecentId
 	plog := r.log.WithField("payload_id", id).WithField("hash", hash)
 	payload, ok := r.engine.backend.recentPayloads.Get(r.engine.backend.mostRecentId)
@@ -138,10 +139,10 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pub
 	}
 	val := big.NewInt(1)
 	plog.Info("Consensus client retrieved prepared payload header")
-	return &GetHeaderResponse{Message: GetHeaderResponseMessage{Header: *payloadHeader, Value: (*hexutil.Big)(val)}}, nil
+	return &types.GetHeaderResponse{Message: types.GetHeaderResponseMessage{Header: *payloadHeader, Value: (*hexutil.Big)(val)}}, nil
 }
 
-func (r *RelayBackend) GetPayloadV1(ctx context.Context, block BlindBeaconBlock, signature hexutil.Bytes) (*ExecutionPayloadV1, error) {
+func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindBeaconBlockV1, signature hexutil.Bytes) (*ExecutionPayloadV1, error) {
 	hash := block.Body.ExecutionPayload.BlockHash
 	plog := r.log.WithField("blockhash", hash)
 	payload, ok := r.recentPayloads.Get(hash)

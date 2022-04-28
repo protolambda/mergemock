@@ -124,6 +124,11 @@ func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	return &RelayBackend{log, engine, cache}, nil
 }
 
+func (r *RelayBackend) RegisterValidatorV1(ctx context.Context, message types.RegisterValidatorRequestMessage, signature hexutil.Bytes) (*string, error) {
+	res := "OK"
+	return &res, nil
+}
+
 func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, hash common.Hash) (*types.GetHeaderResponse, error) {
 	id := r.engine.backend.mostRecentId
 	plog := r.log.WithField("payload_id", id).WithField("hash", hash)

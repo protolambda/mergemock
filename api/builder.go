@@ -45,26 +45,15 @@ type executionPayloadHeaderMarshalling struct {
 	LogsBloom     hexutil.Bytes
 }
 
-//go:generate go run github.com/fjl/gencodec -type GetHeaderResponseMessage -field-override getHeaderResponseMessageMarshalling -out gen_ghrm.go
 type GetHeaderResponseMessage struct {
 	Header ExecutionPayloadHeaderV1 `json:"header"`
-	Value  *big.Int                 `json:"value"`
-	Pubkey []byte                   `json:"pubkey" gencodec:"required"`
+	Value  *hexutil.Big             `json:"value"`
+	Pubkey hexutil.Bytes            `json:"pubkey"`
 }
 
-type getHeaderResponseMessageMarshalling struct {
-	Value  *hexutil.Big
-	Pubkey hexutil.Bytes
-}
-
-//go:generate go run github.com/fjl/gencodec -type GetHeaderResponse -field-override getHeaderResponseMarshalling -out gen_ghr.go
 type GetHeaderResponse struct {
 	Message   GetHeaderResponseMessage `json:"message"`
-	Signature []byte                   `json:"signature"`
-}
-
-type getHeaderResponseMarshalling struct {
-	Signature hexutil.Bytes
+	Signature hexutil.Bytes            `json:"signature"`
 }
 
 // See https://github.com/ethereum/consensus-specs/blob/v1.1.6/specs/phase0/beacon-chain.md#beaconblock

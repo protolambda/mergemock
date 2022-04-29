@@ -19,7 +19,7 @@ require (
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
 	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
-	github.com/holiman/uint256 v1.2.0
+	github.com/holiman/uint256 v1.2.0 // indirect
 	github.com/huin/goupnp v1.0.3-0.20220313090229-ca81a64b4204 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/mattn/go-colorable v0.1.8 // indirect
@@ -42,18 +42,15 @@ require (
 	gopkg.in/urfave/cli.v1 v1.20.0 // indirect
 )
 
-require github.com/golang-jwt/jwt/v4 v4.3.0
+require (
+	github.com/flashbots/mev-boost v0.3.3
+	github.com/golang-jwt/jwt/v4 v4.3.0
+)
 
 require (
-	github.com/fjl/gencodec v0.0.0-20191126094850-e283372f291f // indirect
-	github.com/flashbots/mev-boost v0.3.3-0.20220429125907-b519f2dbc731 // indirect
-	github.com/garslo/gogen v0.0.0-20170306192744-1d203ffc1f61 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/go-bexpr v0.1.10 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/mitchellh/pointerstructure v1.2.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
-	golang.org/x/mod v0.4.2 // indirect
-	golang.org/x/tools v0.1.0 // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 )

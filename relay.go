@@ -147,8 +147,8 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pub
 	return &types.GetHeaderResponse{Message: types.GetHeaderResponseMessage{Header: *payloadHeader, Value: (*hexutil.Big)(val)}}, nil
 }
 
-func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindBeaconBlockV1, signature hexutil.Bytes) (*ExecutionPayloadV1, error) {
-	hash := block.Body.ExecutionPayload.BlockHash
+func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeaconBlockV1, signature hexutil.Bytes) (*ExecutionPayloadV1, error) {
+	hash := block.Body.ExecutionPayloadHeader.BlockHash
 	plog := r.log.WithField("blockhash", hash)
 	payload, ok := r.recentPayloads.Get(hash)
 	if !ok {

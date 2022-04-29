@@ -43,9 +43,9 @@ func BuilderGetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1Field
 	e.Debug("sending payload for execution")
 	var result ExecutionPayloadV1
 
-	block := types.BlindBeaconBlockV1{
-		Body: types.BlindBeaconBlockBodyV1{
-			ExecutionPayload: *header,
+	block := types.BlindedBeaconBlockV1{
+		Body: types.BlindedBeaconBlockBodyV1{
+			ExecutionPayloadHeader: *header,
 		},
 	}
 

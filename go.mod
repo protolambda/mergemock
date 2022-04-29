@@ -46,7 +46,7 @@ require github.com/golang-jwt/jwt/v4 v4.3.0
 
 require (
 	github.com/fjl/gencodec v0.0.0-20191126094850-e283372f291f // indirect
-	github.com/flashbots/mev-boost v0.3.1-0.20220428145632-0382dea6718e // indirect
+	github.com/flashbots/mev-boost v0.3.3-0.20220429125907-b519f2dbc731 // indirect
 	github.com/garslo/gogen v0.0.0-20170306192744-1d203ffc1f61 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/go-bexpr v0.1.10 // indirect

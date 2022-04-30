@@ -5,6 +5,9 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
+// Generate SSZ encoding with the following:
+// sszgen --path types --include ../go-ethereum/common/hexutil --objs Eth1Data,BeaconBlockHeader,SignedBeaconBlockHeader,ProposerSlashing,Checkpoint,AttestationData,IndexedAttestation,AttesterSlashing,Attestation,Deposit,VoluntaryExit,SyncAggregate,ExecutionPayloadHeaderV1,BlindedBeaconBlockBodyV1,BlindedBeaconBlockV1
+
 type Eth1Data struct {
 	DepositRoot  hexutil.Bytes  `json:"depositRoot" ssz-size:"32"`
 	DepositCount hexutil.Uint64 `json:"depositCount"`

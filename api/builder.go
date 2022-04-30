@@ -4,12 +4,12 @@ import (
 	"context"
 	"math/big"
 	"mergemock/rpc"
+	"mergemock/types"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
-	"github.com/flashbots/mev-boost/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -88,6 +88,6 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*types.ExecutionPayloadHeade
 		ExtraData:        p.ExtraData,
 		BaseFeePerGas:    (*big.Int)(p.BaseFeePerGas),
 		BlockHash:        p.BlockHash,
-		TransactionsRoot: ethtypes.DeriveSha(ethtypes.Transactions(txs), trie.NewStackTrie(nil)),
+		TransactionsRoot: ethTypes.DeriveSha(ethTypes.Transactions(txs), trie.NewStackTrie(nil)),
 	}, nil
 }

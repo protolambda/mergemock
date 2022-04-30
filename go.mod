@@ -48,6 +48,7 @@ require (
 )
 
 require (
+	github.com/ferranbt/fastssz v0.0.0-20220303160658-88bb965b6747 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/go-bexpr v0.1.10 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect

@@ -43,15 +43,17 @@ require (
 )
 
 require (
+	github.com/ferranbt/fastssz v0.0.0-20220303160658-88bb965b6747
 	github.com/flashbots/mev-boost v0.3.3
 	github.com/golang-jwt/jwt/v4 v4.3.0
 )
 
 require (
-	github.com/ferranbt/fastssz v0.0.0-20220303160658-88bb965b6747 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/go-bexpr v0.1.10 // indirect
+	github.com/minio/sha256-simd v0.1.1 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/mitchellh/pointerstructure v1.2.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

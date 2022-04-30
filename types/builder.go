@@ -23,13 +23,13 @@ type BeaconBlockHeader struct {
 }
 
 type SignedBeaconBlockHeader struct {
-	Header    BeaconBlockHeader `json:"message"`
-	Signature hexutil.Bytes     `json:"signature" ssz-size:"96"`
+	Header    *BeaconBlockHeader `json:"message"`
+	Signature hexutil.Bytes      `json:"signature" ssz-size:"96"`
 }
 
 type ProposerSlashing struct {
-	A SignedBeaconBlockHeader `json:"signedHeader1"`
-	B SignedBeaconBlockHeader `json:"signedHeader2"`
+	A *SignedBeaconBlockHeader `json:"signedHeader1"`
+	B *SignedBeaconBlockHeader `json:"signedHeader2"`
 }
 
 type Checkpoint struct {
@@ -41,25 +41,30 @@ type AttestationData struct {
 	Slot      hexutil.Uint64 `json:"slot"`
 	Index     hexutil.Uint64 `json:"Index"`
 	BlockRoot hexutil.Bytes  `json:"beaconBlockRoot" ssz-size:"32"`
-	Source    Checkpoint     `json:"source"`
-	Target    Checkpoint     `json:"target"`
+	Source    *Checkpoint    `json:"source"`
+	Target    *Checkpoint    `json:"target"`
 }
 
+//go:generate go run github.com/fjl/gencodec -type IndexedAttestation -field-override indexedAttestationMarshaling -out gen_indexed_attestation.go
 type IndexedAttestation struct {
-	AttestingIndices []hexutil.Uint64 `json:"attestingIndices" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
-	Data             AttestationData  `json:"data"`
+	AttestingIndices []uint64         `json:"attestingIndices" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
+	Data             *AttestationData `json:"data"`
 	Signature        hexutil.Bytes    `json:"signature" ssz-size:"96"`
 }
 
+type indexedAttestationMarshaling struct {
+	AttestingIndices []hexutil.Uint64 `json:"attestingIndices"`
+}
+
 type AttesterSlashing struct {
-	A IndexedAttestation `json:"attestation1"`
-	B IndexedAttestation `json:"attestation2"`
+	A *IndexedAttestation `json:"attestation1"`
+	B *IndexedAttestation `json:"attestation2"`
 }
 
 type Attestation struct {
-	AggregationBits hexutil.Bytes   `json:"aggregationBits" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
-	Data            AttestationData `json:"data"`
-	Signature       hexutil.Bytes   `json:"signature" ssz-size:"96"`
+	AggregationBits hexutil.Bytes    `json:"aggregationBits" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
+	Data            *AttestationData `json:"data"`
+	Signature       hexutil.Bytes    `json:"signature" ssz-size:"96"`
 }
 
 type Deposit struct {
@@ -79,7 +84,6 @@ type SyncAggregate struct {
 	CommitteeSignature hexutil.Bytes `json:"syncCommitteeSignature" ssz-size:"96"`
 }
 
-//go:generate go run github.com/fjl/gencodec -type ExecutionPayloadHeaderV1 -field-override executionPayloadMarshallingOverrides -out gen_executionpayloadheader.go
 type ExecutionPayloadHeaderV1 struct {
 	ParentHash       hexutil.Bytes  `json:"parentHash" ssz-size:"32"`
 	FeeRecipient     hexutil.Bytes  `json:"feeRecipient" ssz-size:"20"`
@@ -98,24 +102,24 @@ type ExecutionPayloadHeaderV1 struct {
 }
 
 type BlindedBeaconBlockBodyV1 struct {
-	RandaoReveal           hexutil.Bytes            `json:"randaoReveal" ssz-size:"96"`
-	Eth1Data               Eth1Data                 `json:"eth1Data"`
-	Graffiti               hexutil.Bytes            `json:"graffiti" ssz-size:"32"`
-	ProposerSlashings      []ProposerSlashing       `json:"proposerSlashings" ssz-max:"16"`
-	AttesterSlashings      []AttesterSlashing       `json:"attesterSlashings" ssz-max:"2"`
-	Attestations           []Attestation            `json:"attestations" ssz-max:"128"`
-	Deposits               []Deposit                `json:"deposits" ssz-max:"4"`
-	VoluntaryExits         []VoluntaryExits         `json:"voluntaryExits" ssz-max:"16"`
-	SyncAggregate          SyncAggregate            `json:"syncAggregate"`
-	ExecutionPayloadHeader ExecutionPayloadHeaderV1 `json:"executionPayloadHeader"`
+	RandaoReveal           hexutil.Bytes             `json:"randaoReveal" ssz-size:"96"`
+	Eth1Data               *Eth1Data                 `json:"eth1Data"`
+	Graffiti               hexutil.Bytes             `json:"graffiti" ssz-size:"32"`
+	ProposerSlashings      []*ProposerSlashing       `json:"proposerSlashings" ssz-max:"16"`
+	AttesterSlashings      []*AttesterSlashing       `json:"attesterSlashings" ssz-max:"2"`
+	Attestations           []*Attestation            `json:"attestations" ssz-max:"128"`
+	Deposits               []*Deposit                `json:"deposits" ssz-max:"4"`
+	VoluntaryExits         []*VoluntaryExits         `json:"voluntaryExits" ssz-max:"16"`
+	SyncAggregate          *SyncAggregate            `json:"syncAggregate"`
+	ExecutionPayloadHeader *ExecutionPayloadHeaderV1 `json:"executionPayloadHeader"`
 }
 
 type BlindedBeaconBlockV1 struct {
-	Slot          hexutil.Uint64           `json:"slot"`
-	ProposerIndex hexutil.Uint64           `json:"proposerIndex"`
-	ParentRoot    hexutil.Bytes            `json:"parentRoot" ssz-size:"32"`
-	StateRoot     hexutil.Bytes            `json:"stateRoot" ssz-size:"32"`
-	Body          BlindedBeaconBlockBodyV1 `json:"body"`
+	Slot          hexutil.Uint64            `json:"slot"`
+	ProposerIndex hexutil.Uint64            `json:"proposerIndex"`
+	ParentRoot    hexutil.Bytes             `json:"parentRoot" ssz-size:"32"`
+	StateRoot     hexutil.Bytes             `json:"stateRoot" ssz-size:"32"`
+	Body          *BlindedBeaconBlockBodyV1 `json:"body"`
 }
 
 type RegisterValidatorRequestMessage struct {
@@ -133,4 +137,27 @@ type GetHeaderResponseMessage struct {
 type GetHeaderResponse struct {
 	Message   GetHeaderResponseMessage `json:"message"`
 	Signature hexutil.Bytes            `json:"signature"`
+}
+
+func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, error) {
+	// txs, err := decodeTransactions(p.Transactions)
+	// if err != nil {
+	//         return nil, err
+	// }
+	return &ExecutionPayloadHeaderV1{
+		// ParentHash:       p.ParentHash,
+		// FeeRecipient:     p.FeeRecipient,
+		// StateRoot:        p.StateRoot,
+		// ReceiptsRoot:     p.ReceiptsRoot,
+		// LogsBloom:        p.LogsBloom,
+		// PrevRandao:       p.Random,
+		// BlockNumber:      p.Number,
+		// GasLimit:         p.GasLimit,
+		// GasUsed:          p.GasUsed,
+		// Timestamp:        p.Timestamp,
+		// ExtraData:        p.ExtraData,
+		// BaseFeePerGas:    (*big.Int)(p.BaseFeePerGas),
+		// BlockHash:        p.BlockHash,
+		// TransactionsRoot: types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil)),
+	}, nil
 }

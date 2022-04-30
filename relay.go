@@ -6,10 +6,9 @@ import (
 	"math/big"
 	. "mergemock/api"
 	"mergemock/rpc"
+	"mergemock/types"
 	"net/http"
 	"time"
-
-	"github.com/flashbots/mev-boost/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -137,7 +136,7 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pub
 		plog.Warn("Cannot get unknown payload")
 		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
 	}
-	payloadHeader, err := PayloadToPayloadHeader(payload.(*ExecutionPayloadV1))
+	payloadHeader, err := types.PayloadToPayloadHeader(payload.(*types.ExecutionPayloadV1))
 	r.recentPayloads.Add(payloadHeader.BlockHash, payload)
 	if err != nil {
 		return nil, err
@@ -147,7 +146,7 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pub
 	return &types.GetHeaderResponse{Message: types.GetHeaderResponseMessage{Header: *payloadHeader, Value: (*hexutil.Big)(val)}}, nil
 }
 
-func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeaconBlockV1, signature hexutil.Bytes) (*ExecutionPayloadV1, error) {
+func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeaconBlockV1, signature hexutil.Bytes) (*types.ExecutionPayloadV1, error) {
 	hash := block.Body.ExecutionPayloadHeader.BlockHash
 	plog := r.log.WithField("blockhash", hash)
 	payload, ok := r.recentPayloads.Get(hash)
@@ -156,5 +155,5 @@ func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeac
 		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", hash), Id: int(UnavailablePayload)}
 	}
 	plog.Info("Consensus client retrieved prepared payload header")
-	return payload.(*ExecutionPayloadV1), nil
+	return payload.(*types.ExecutionPayloadV1), nil
 }

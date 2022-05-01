@@ -13,7 +13,7 @@ import (
 func BuilderGetHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, blockHash common.Hash) (*types.ExecutionPayloadHeaderV1, error) {
 	e := log.WithField("blockHash", blockHash)
 	e.Debug("getting header")
-	var result types.GetHeaderResponse
+	var result types.SignedBuilderBidV1
 
 	pubkey := "0xf9716c94aab536227804e859d15207aa7eaaacd839f39dcbdb5adc942842a8d2fb730f9f49fc719fdb86f1873e0ed1c2"
 	err := cl.CallContext(ctx, &result, "builder_getHeaderV1", "0x1", pubkey, blockHash.Hex())
@@ -32,7 +32,7 @@ func BuilderGetHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldL
 		return nil, err
 	}
 	e.Debug("Received payload")
-	return &result.Message.Header, nil
+	return result.Message.Header, nil
 }
 
 func BuilderGetPayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *types.ExecutionPayloadHeaderV1) (*types.ExecutionPayloadV1, error) {

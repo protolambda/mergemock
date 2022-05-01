@@ -12,9 +12,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/log"
 	lru "github.com/hashicorp/golang-lru"
+	"github.com/prysmaticlabs/prysm/shared/bls"
 	"github.com/sirupsen/logrus"
 )
+
+const (
+	InvalidSignature = -32005
+)
+
+var dst = []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_")
 
 type RelayCmd struct {
 	// connectivity options
@@ -107,6 +115,8 @@ type RelayBackend struct {
 	log            logrus.Ext1FieldLogger
 	engine         *EngineCmd
 	recentPayloads *lru.Cache
+	pk             bls.PublicKey
+	sk             bls.SecretKey
 }
 
 func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
@@ -116,19 +126,45 @@ func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	engine.ListenAddr = "127.0.0.1:8550"
 	engine.WebsocketAddr = "127.0.0.1:8552"
 	cache, err := lru.New(10)
-
 	if err != nil {
 		return nil, err
 	}
-	return &RelayBackend{log, engine, cache}, nil
+	sk, _ := bls.RandKey()
+	return &RelayBackend{log, engine, cache, sk.PublicKey(), sk}, nil
+}
+
+type hashTreeRoot interface {
+	HashTreeRoot() ([32]byte, error)
+}
+
+func verifySignature(obj hashTreeRoot, pk, s []byte) (bool, error) {
+	msg, err := obj.HashTreeRoot()
+	if err != nil {
+		return false, err
+	}
+	sig, err := bls.SignatureFromBytes(s)
+	if err != nil {
+		return false, err
+	}
+	pubkey, err := bls.PublicKeyFromBytes(pk)
+	if err != nil {
+		return false, err
+	}
+	return sig.Verify(pubkey, msg[:]), nil
 }
 
 func (r *RelayBackend) RegisterValidatorV1(ctx context.Context, message types.RegisterValidatorRequestMessage, signature hexutil.Bytes) (*string, error) {
+	ok, err := verifySignature(&message, message.Pubkey, signature)
+	if !ok || err != nil {
+		log.Error("invalid signature", "err", err)
+		return nil, &rpc.Error{Err: fmt.Errorf("invalid signature"), Id: int(InvalidSignature)}
+	}
+	// TODO: update mapping
 	res := "OK"
 	return &res, nil
 }
 
-func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, hash common.Hash) (*types.GetHeaderResponse, error) {
+func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, hash common.Hash) (*types.SignedBuilderBidV1, error) {
 	id := r.engine.backend.mostRecentId
 	plog := r.log.WithField("payload_id", id).WithField("hash", hash)
 	payload, ok := r.engine.backend.recentPayloads.Get(r.engine.backend.mostRecentId)
@@ -143,7 +179,7 @@ func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pub
 	}
 	val := big.NewInt(1)
 	plog.Info("Consensus client retrieved prepared payload header")
-	return &types.GetHeaderResponse{Message: types.GetHeaderResponseMessage{Header: *payloadHeader, Value: (*hexutil.Big)(val)}}, nil
+	return &types.SignedBuilderBidV1{Message: &types.BuilderBidV1{Header: payloadHeader, Value: hexutil.Uint64(val.Uint64())}}, nil
 }
 
 func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeaconBlockV1, signature hexutil.Bytes) (*types.ExecutionPayloadV1, error) {

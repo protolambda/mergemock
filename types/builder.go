@@ -1,7 +1,6 @@
 package types
 
 import (
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
@@ -123,20 +122,20 @@ type BlindedBeaconBlockV1 struct {
 }
 
 type RegisterValidatorRequestMessage struct {
-	FeeRecipient common.Address `json:"feeRecipient"`
+	FeeRecipient hexutil.Bytes  `json:"feeRecipient" ssz-size:"48"`
 	Timestamp    hexutil.Uint64 `json:"timestamp"`
-	Pubkey       hexutil.Bytes  `json:"pubkey"`
+	Pubkey       hexutil.Bytes  `json:"pubkey" ssz-size:"48"`
 }
 
-type GetHeaderResponseMessage struct {
-	Header ExecutionPayloadHeaderV1 `json:"header"`
-	Value  *hexutil.Big             `json:"value"`
-	Pubkey hexutil.Bytes            `json:"pubkey"`
+type BuilderBidV1 struct {
+	Header *ExecutionPayloadHeaderV1 `json:"header"`
+	Value  hexutil.Uint64            `json:"value"` // TODO: make uint256
+	Pubkey hexutil.Bytes             `json:"pubkey" ssz-size:"48"`
 }
 
-type GetHeaderResponse struct {
-	Message   GetHeaderResponseMessage `json:"message"`
-	Signature hexutil.Bytes            `json:"signature"`
+type SignedBuilderBidV1 struct {
+	Message   *BuilderBidV1 `json:"message"`
+	Signature hexutil.Bytes `json:"signature"`
 }
 
 func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, error) {

@@ -34,7 +34,7 @@ type RelayCmd struct {
 	LogCmd `ask:".log" help:"Change logger configuration"`
 
 	close  chan struct{}
-	log    logrus.Ext1FieldLogger
+	log    *logrus.Logger
 	ctx    context.Context
 	rpcSrv *rpc.Server
 	srv    *http.Server
@@ -112,14 +112,14 @@ func (r *RelayCmd) startRPC(ctx context.Context, backend *RelayBackend) {
 }
 
 type RelayBackend struct {
-	log            logrus.Ext1FieldLogger
+	log            *logrus.Logger
 	engine         *EngineCmd
 	recentPayloads *lru.Cache
 	pk             bls.PublicKey
 	sk             bls.SecretKey
 }
 
-func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
+func NewRelayBackend(log *logrus.Logger) (*RelayBackend, error) {
 	engine := &EngineCmd{}
 	engine.Default()
 	engine.LogCmd.Default()
@@ -154,7 +154,7 @@ func verifySignature(obj hashTreeRoot, pk, s []byte) (bool, error) {
 }
 
 func (r *RelayBackend) RegisterValidatorV1(ctx context.Context, message types.RegisterValidatorRequestMessage, signature hexutil.Bytes) (*string, error) {
-	ok, err := verifySignature(&message, message.Pubkey, signature)
+	ok, err := verifySignature(&message, message.Pubkey[:], signature)
 	if !ok || err != nil {
 		log.Error("invalid signature", "err", err)
 		return nil, &rpc.Error{Err: fmt.Errorf("invalid signature"), Id: int(InvalidSignature)}

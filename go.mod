@@ -53,6 +53,8 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
 	github.com/dgraph-io/ristretto v0.0.4-0.20210318174700-74754f61e018 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
+	github.com/fjl/gencodec v0.0.0-20220412091415-8bb9e558978c // indirect
+	github.com/garslo/gogen v0.0.0-20170306192744-1d203ffc1f61 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/go-bexpr v0.1.10 // indirect
 	github.com/herumi/bls-eth-go-binary v0.0.0-20210130185500-57372fb27371 // indirect
@@ -67,5 +69,8 @@ require (
 	github.com/supranational/blst v0.3.7 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/urfave/cli/v2 v2.3.0 // indirect
+	golang.org/x/mod v0.4.2 // indirect
+	golang.org/x/tools v0.1.1 // indirect
+	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	. "mergemock/api"
+	"mergemock/api"
 	"mergemock/rpc"
 	"net/http"
 
@@ -71,14 +71,10 @@ func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 func (r *RelayCmd) RunNode() {
 	r.log.Info("started")
 	go r.srv.ListenAndServe()
-	for {
-		select {
-		case <-r.close:
-			r.rpcSrv.Stop()
-			r.srv.Close()
-			return
-		}
-	}
+
+	<-r.close
+	r.rpcSrv.Stop()
+	r.srv.Close()
 }
 
 func (r *RelayCmd) Close() error {
@@ -128,18 +124,18 @@ func NewRelayBackend(log logrus.Ext1FieldLogger) (*RelayBackend, error) {
 	return &RelayBackend{log, engine, 0, cache}, nil
 }
 
-func (r *RelayBackend) GetPayloadHeaderV1(ctx context.Context, id PayloadID) (*ExecutionPayloadHeaderV1, error) {
+func (r *RelayBackend) GetPayloadHeaderV1(ctx context.Context, id api.PayloadID) (*api.ExecutionPayloadHeaderV1, error) {
 	plog := r.log.WithField("payload_id", id)
 	payload, ok := r.recentPayloads.Get(id)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(api.UnavailablePayload)}
 	}
 	plog.Info("Consensus client retrieved prepared payload header")
-	return payload.(*ExecutionPayloadHeaderV1), nil
+	return payload.(*api.ExecutionPayloadHeaderV1), nil
 }
 
-func (r *RelayBackend) ProposeBlindedBlockV1(ctx context.Context, block *SignedBlindedBeaconBlock, attributes *SignedBuilderReceipt) (*ExecutionPayloadV1, error) {
+func (r *RelayBackend) ProposeBlindedBlockV1(ctx context.Context, block *api.SignedBlindedBeaconBlock, attributes *api.SignedBuilderReceipt) (*api.ExecutionPayloadV1, error) {
 	// TODO: The signed messages should be verified. It should ensure that the signed beacon block is for a validator
 	// in the expected slot. The attributes should be verified against the relayer's key.
 	hash := block.Message.Body.ExecutionPayload.BlockHash
@@ -147,13 +143,13 @@ func (r *RelayBackend) ProposeBlindedBlockV1(ctx context.Context, block *SignedB
 	payload, ok := r.recentPayloads.Get(hash)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", hash), Id: int(UnavailablePayload)}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", hash), Id: int(api.UnavailablePayload)}
 	}
 	plog.Info("Consensus client retrieved prepared payload header")
-	return payload.(*ExecutionPayloadV1), nil
+	return payload.(*api.ExecutionPayloadV1), nil
 }
 
-func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceStateV1, attributes *PayloadAttributesV1) (*ForkchoiceUpdatedResult, error) {
+func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *api.ForkchoiceStateV1, attributes *api.PayloadAttributesV1) (*api.ForkchoiceUpdatedResult, error) {
 	r.log.WithFields(logrus.Fields{
 		"head":       heads.HeadBlockHash,
 		"safe":       heads.SafeBlockHash,
@@ -162,10 +158,10 @@ func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoic
 	}).Info("Forkchoice updated")
 
 	if attributes == nil {
-		return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
+		return &api.ForkchoiceUpdatedResult{PayloadStatus: api.PayloadStatusV1{Status: api.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
 	}
 	idU64 := atomic.AddUint64(&r.payloadIdCounter, 1)
-	var id PayloadID
+	var id api.PayloadID
 	binary.BigEndian.PutUint64(id[:], idU64)
 
 	plog := r.log.WithField("payload_id", id)
@@ -189,14 +185,14 @@ func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoic
 		return nil, err
 	}
 
-	payload, err := BlockToPayload(bl)
+	payload, err := api.BlockToPayload(bl)
 	if err != nil {
 		plog.WithError(err).Error("Failed to convert block to payload")
 		// TODO: proper error codes
 		return nil, err
 	}
 
-	header, err := PayloadToPayloadHeader(payload)
+	header, err := api.PayloadToPayloadHeader(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -205,5 +201,5 @@ func (r *RelayBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *Forkchoic
 	r.recentPayloads.Add(id, header)
 	r.recentPayloads.Add(bl.Hash(), payload)
 
-	return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
+	return &api.ForkchoiceUpdatedResult{PayloadStatus: api.PayloadStatusV1{Status: api.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

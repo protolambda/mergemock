@@ -2,13 +2,11 @@ package main
 
 import (
 	"bytes"
-	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
-	. "mergemock/api"
+	"mergemock/api"
 	"os"
 	"time"
 
@@ -32,10 +30,10 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-type testAccount struct {
-	pk   *ecdsa.PrivateKey
-	addr common.Address
-}
+// type testAccount struct {
+// 	pk   *ecdsa.PrivateKey
+// 	addr common.Address
+// }
 
 // This implements the execution-block-header verification interface, but omits many of the details:
 // the mock doesn't fully verify, and sealing work of headers is very limited.
@@ -161,20 +159,20 @@ func (e *ExecutionConsensusMock) Close() error {
 var _ consensus.Engine = (*ExecutionConsensusMock)(nil)
 
 // a hack borrowed from the geth core package
-type fakeChainReader struct {
-	config *params.ChainConfig
-}
+// type fakeChainReader struct {
+// 	config *params.ChainConfig
+// }
 
-// Config returns the chain configuration.
-func (cr *fakeChainReader) Config() *params.ChainConfig {
-	return cr.config
-}
+// // Config returns the chain configuration.
+// func (cr *fakeChainReader) Config() *params.ChainConfig {
+// 	return cr.config
+// }
 
-func (cr *fakeChainReader) CurrentHeader() *types.Header                            { return nil }
-func (cr *fakeChainReader) GetHeaderByNumber(number uint64) *types.Header           { return nil }
-func (cr *fakeChainReader) GetHeaderByHash(hash common.Hash) *types.Header          { return nil }
-func (cr *fakeChainReader) GetHeader(hash common.Hash, number uint64) *types.Header { return nil }
-func (cr *fakeChainReader) GetBlock(hash common.Hash, number uint64) *types.Block   { return nil }
+// func (cr *fakeChainReader) CurrentHeader() *types.Header                            { return nil }
+// func (cr *fakeChainReader) GetHeaderByNumber(number uint64) *types.Header           { return nil }
+// func (cr *fakeChainReader) GetHeaderByHash(hash common.Hash) *types.Header          { return nil }
+// func (cr *fakeChainReader) GetHeader(hash common.Hash, number uint64) *types.Header { return nil }
+// func (cr *fakeChainReader) GetBlock(hash common.Hash, number uint64) *types.Block   { return nil }
 
 type TraceLogConfig struct {
 	EnableTrace      bool `ask:"--enable" help:"enable tracing"`
@@ -315,7 +313,7 @@ func (c *MockChain) AddNewBlock(parentHash common.Hash, coinbase common.Address,
 	if c.traceOpts.EnableTrace {
 		var buf bytes.Buffer
 		logger.WriteTrace(&buf, stl.StructLogs())
-		c.log.Info("trace:\n" + string(buf.Bytes()))
+		c.log.Info("trace:\n" + buf.String())
 	}
 
 	header.GasUsed = header.GasLimit - uint64(*gasPool)
@@ -404,7 +402,7 @@ func (c *MockChain) MineBlock(parent *types.Header) (*types.Block, error) {
 	return block, nil
 }
 
-func (c *MockChain) ProcessPayload(payload *ExecutionPayloadV1) (*types.Block, error) {
+func (c *MockChain) ProcessPayload(payload *api.ExecutionPayloadV1) (*types.Block, error) {
 	parent := c.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		return nil, fmt.Errorf("unknown parent %s", payload.ParentHash)
@@ -472,7 +470,7 @@ func (c *MockChain) ProcessPayload(payload *ExecutionPayloadV1) (*types.Block, e
 	if c.traceOpts.EnableTrace {
 		var buf bytes.Buffer
 		logger.WriteTrace(&buf, stl.StructLogs())
-		c.log.Info("trace:\n" + string(buf.Bytes()))
+		c.log.Info("trace:\n" + buf.String())
 	}
 
 	// verify state root is correct, and build the block
@@ -552,10 +550,10 @@ func LoadGenesisConfig(path string) (*core.Genesis, error) {
 	return &genesis, nil
 }
 
-func mockRandomValue(seed [32]byte) [32]byte {
-	h := sha256.New()
-	h.Write(seed[:])
-	var random common.Hash
-	copy(random[:], h.Sum(nil))
-	return random
-}
+// func mockRandomValue(seed [32]byte) [32]byte {
+// 	h := sha256.New()
+// 	h.Write(seed[:])
+// 	var random common.Hash
+// 	copy(random[:], h.Sum(nil))
+// 	return random
+// }

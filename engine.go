@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
-	"mergemock/api"
+	. "mergemock/api"
 	"mergemock/rpc"
 	"net/http"
 	"sync/atomic"
@@ -100,10 +100,16 @@ func (c *EngineCmd) RunNode() {
 	go c.srv.ListenAndServe()
 	go c.wsSrv.ListenAndServe()
 
-	<-c.close
-	c.rpcSrv.Stop()
-	c.srv.Close()
-	c.wsSrv.Close()
+	for {
+		select {
+		case <-c.close:
+			c.rpcSrv.Stop()
+			c.srv.Close()
+			c.wsSrv.Close()
+			return
+			// TODO: any other tasks to run in this loop? mock sync changes?
+		}
+	}
 }
 
 func (c *EngineCmd) Close() error {
@@ -177,31 +183,31 @@ func NewEngineBackend(log logrus.Ext1FieldLogger, mock *MockChain) (*EngineBacke
 	return &EngineBackend{log, mock, 0, cache}, nil
 }
 
-func (e *EngineBackend) GetPayloadV1(ctx context.Context, id api.PayloadID) (*api.ExecutionPayloadV1, error) {
+func (e *EngineBackend) GetPayloadV1(ctx context.Context, id PayloadID) (*ExecutionPayloadV1, error) {
 	plog := e.log.WithField("payload_id", id)
 
 	payload, ok := e.recentPayloads.Get(id)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(api.UnavailablePayload)}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
 	}
 
 	plog.Info("Consensus client retrieved prepared payload")
-	return payload.(*api.ExecutionPayloadV1), nil
+	return payload.(*ExecutionPayloadV1), nil
 }
 
-func (e *EngineBackend) NewPayloadV1(ctx context.Context, payload *api.ExecutionPayloadV1) (*api.PayloadStatusV1, error) {
+func (e *EngineBackend) NewPayloadV1(ctx context.Context, payload *ExecutionPayloadV1) (*PayloadStatusV1, error) {
 	log := e.log.WithField("block_hash", payload.BlockHash)
 	if !payload.ValidateHash() {
-		return &api.PayloadStatusV1{Status: api.ExecutionInvalidBlockHash}, nil
+		return &PayloadStatusV1{Status: ExecutionInvalidBlockHash}, nil
 	}
 	parent := e.mockChain.chain.GetHeaderByHash(payload.ParentHash)
 	if parent == nil {
 		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Cannot execute payload, parent is unknown")
-		return &api.PayloadStatusV1{Status: api.ExecutionSyncing}, nil
+		return &PayloadStatusV1{Status: ExecutionSyncing}, nil
 	} else if parent.Difficulty.Cmp(e.mockChain.gspec.Config.TerminalTotalDifficulty) < 0 {
 		log.WithField("parent_hash", payload.ParentHash.String()).Warn("Parent block not yet at TTD")
-		return &api.PayloadStatusV1{Status: api.ExecutionInvalidTerminalBlock}, nil
+		return &PayloadStatusV1{Status: ExecutionInvalidTerminalBlock}, nil
 	}
 
 	_, err := e.mockChain.ProcessPayload(payload)
@@ -211,10 +217,10 @@ func (e *EngineBackend) NewPayloadV1(ctx context.Context, payload *api.Execution
 		return nil, err
 	}
 	log.Info("Executed payload")
-	return &api.PayloadStatusV1{Status: api.ExecutionValid}, nil
+	return &PayloadStatusV1{Status: ExecutionValid}, nil
 }
 
-func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *api.ForkchoiceStateV1, attributes *api.PayloadAttributesV1) (*api.ForkchoiceUpdatedResult, error) {
+func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *ForkchoiceStateV1, attributes *PayloadAttributesV1) (*ForkchoiceUpdatedResult, error) {
 	e.log.WithFields(logrus.Fields{
 		"head":       heads.HeadBlockHash,
 		"safe":       heads.SafeBlockHash,
@@ -223,10 +229,10 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *api.Fork
 	}).Info("Forkchoice updated")
 
 	if attributes == nil {
-		return &api.ForkchoiceUpdatedResult{PayloadStatus: api.PayloadStatusV1{Status: api.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
+		return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}}, nil
 	}
 	idU64 := atomic.AddUint64(&e.payloadIdCounter, 1)
-	var id api.PayloadID
+	var id PayloadID
 	binary.BigEndian.PutUint64(id[:], idU64)
 
 	plog := e.log.WithField("payload_id", id)
@@ -250,7 +256,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *api.Fork
 		return nil, err
 	}
 
-	payload, err := api.BlockToPayload(bl)
+	payload, err := BlockToPayload(bl)
 	if err != nil {
 		plog.WithError(err).Error("Failed to convert block to payload")
 		// TODO: proper error codes
@@ -260,5 +266,5 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *api.Fork
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 
-	return &api.ForkchoiceUpdatedResult{PayloadStatus: api.PayloadStatusV1{Status: api.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
+	return &ForkchoiceUpdatedResult{PayloadStatus: PayloadStatusV1{Status: ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

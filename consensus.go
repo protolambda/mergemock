@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"mergemock/api"
+	. "mergemock/api"
 	"mergemock/p2p"
 	"mergemock/rpc"
 	"os"
@@ -58,7 +58,7 @@ type ConsensusCmd struct {
 	db        ethdb.Database
 
 	ethashCfg ethash.Config
-	// peer      *p2p.Conn
+	peer      *p2p.Conn
 
 	mockChain *MockChain
 }
@@ -225,7 +225,7 @@ func (c *ConsensusCmd) RunNode() {
 			pow: ethash.New(c.ethashCfg, nil, false),
 			log: c.log,
 		}
-		payloadId = make(chan api.PayloadID)
+		payloadId = make(chan PayloadID)
 	)
 	defer slots.Stop()
 
@@ -292,7 +292,7 @@ func (c *ConsensusCmd) RunNode() {
 			// Send bad hash
 			if c.RNG.Float64() < c.Freq.InvalidHashFreq {
 				c.log.Info("Sending payload with invalid hash")
-				payload := &api.ExecutionPayloadV1{
+				payload := &ExecutionPayloadV1{
 					ParentHash:    c.mockChain.CurrentHeader().Hash(),
 					FeeRecipient:  common.Address{},
 					Number:        c.mockChain.CurrentHeader().Number.Uint64(),
@@ -302,7 +302,7 @@ func (c *ConsensusCmd) RunNode() {
 					BaseFeePerGas: c.mockChain.CurrentHeader().BaseFee,
 					BlockHash:     common.HexToHash("0xdeadbeef"),
 				}
-				go api.NewPayloadV1(c.ctx, c.engine, c.log, payload)
+				go NewPayloadV1(c.ctx, c.engine, c.log, payload)
 				continue
 			}
 
@@ -356,7 +356,7 @@ func (c *ConsensusCmd) RunNode() {
 				latest := block.Hash()
 				// Note: head and safe hash are set to the same hash,
 				// until forkchoice updates are more attestation-weight aware.
-				var attributes *api.PayloadAttributesV1
+				var attributes *PayloadAttributesV1
 				if c.RNG.Float64() < c.Freq.ProposalFreq {
 					// proposing next slot!
 					attributes = c.makePayloadAttributes(slot + 1)
@@ -380,14 +380,14 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, attributes *api.PayloadAttributesV1) *api.PayloadID {
-	result, _ := api.ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
-	if result.PayloadStatus.Status != api.ExecutionValid {
+func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, attributes *PayloadAttributesV1) *PayloadID {
+	result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
+	if result.PayloadStatus.Status != ExecutionValid {
 		c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
 	}
 	if c.builder != nil && attributes != nil {
-		result, _ := api.ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
-		if result.PayloadStatus.Status != api.ExecutionValid {
+		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
+		if result.PayloadStatus.Status != ExecutionValid {
 			c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
 		}
 		return result.PayloadID
@@ -395,14 +395,14 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, at
 	return result.PayloadID
 }
 
-func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId api.PayloadID) (*api.ExecutionPayloadV1, error) {
+func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
 	if c.builder != nil {
-		header, err := api.GetPayloadHeader(c.ctx, c.builder, log, payloadId)
+		header, err := GetPayloadHeader(c.ctx, c.builder, log, payloadId)
 		if err != nil {
 			return nil, err
 		}
-		payload, err := api.ProposePayload(ctx, c.builder, log, header)
+		payload, err := ProposePayload(ctx, c.builder, log, header)
 		if err != nil {
 			return nil, err
 		}
@@ -410,14 +410,14 @@ func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1Field
 	}
 
 	// Otherwise, get payload from EL.
-	payload, err := api.GetPayloadV1(c.ctx, c.engine, log, payloadId)
+	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
 	if err != nil {
 		return nil, err
 	}
 	return payload, err
 }
 
-func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId api.PayloadID, slot uint64, consensusFail bool) {
+func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId PayloadID, slot uint64, consensusFail bool) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
 
@@ -446,14 +446,14 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId api.Pa
 	}
 
 	// Send it back to execution layer for execution
-	res, err := api.NewPayloadV1(ctx, c.engine, log, payload)
-	if err == nil && res.Status == api.ExecutionValid {
+	res, err := NewPayloadV1(ctx, c.engine, log, payload)
+	if err == nil && res.Status == ExecutionValid {
 		log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
 		return
 	}
 	if err != nil {
 		log.WithError(err).Error("Failed to execute payload")
-	} else if res.Status == api.ExecutionInvalid {
+	} else if res.Status == ExecutionInvalid {
 		log.WithField("blockhash", block.Hash()).Error("Engine just produced payload and failed to execute it after!")
 	} else {
 		log.WithField("status", res.Status).Error("Unrecognized execution status")
@@ -466,14 +466,14 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Bl
 	defer cancel()
 
 	// derive the random 32 bytes from the block hash for mocking ease
-	payload, err := api.BlockToPayload(block)
+	payload, err := BlockToPayload(block)
 
 	if err != nil {
 		log.WithError(err).Error("Failed to convert execution block to execution payload")
 		return
 	}
 
-	api.NewPayloadV1(ctx, c.engine, log, payload)
+	NewPayloadV1(ctx, c.engine, log, payload)
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config, accounts []TestAccount) []*types.Transaction {
@@ -510,10 +510,10 @@ func (c *ConsensusCmd) Close() error {
 	return nil
 }
 
-func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *api.PayloadAttributesV1 {
+func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *PayloadAttributesV1 {
 	var prevRandao common.Hash
 	c.RNG.Read(prevRandao[:])
-	return &api.PayloadAttributesV1{
+	return &PayloadAttributesV1{
 		Timestamp:             c.SlotTimestamp(slot),
 		PrevRandao:            prevRandao,
 		SuggestedFeeRecipient: common.Address{0x13, 0x37},

@@ -50,7 +50,7 @@ func (c *Client) Close() {
 
 // IssueJwtToken creates a new token with IssuedAt set to time.Now().
 func IssueJwtToken() *jwt.Token {
-	claims := jwt.RegisteredClaims{IssuedAt: jwt.NewNumericDate(time.Now())}
+	claims := jwt.RegisteredClaims{IssuedAt: &jwt.NumericDate{time.Now()}}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 }
 

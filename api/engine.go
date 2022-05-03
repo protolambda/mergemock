@@ -85,7 +85,10 @@ func (params *ExecutionPayloadV1) ValidateHash() bool {
 		Extra:       params.ExtraData,
 		MixDigest:   params.Random,
 	}
-	return header.Hash() == common.Hash(params.BlockHash)
+	if header.Hash() != common.Hash(params.BlockHash) {
+		return false
+	}
+	return true
 }
 
 type ExecutePayloadStatus string

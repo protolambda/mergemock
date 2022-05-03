@@ -45,9 +45,14 @@ require (
 require github.com/golang-jwt/jwt/v4 v4.3.0
 
 require (
+	github.com/fjl/gencodec v0.0.0-20220412091415-8bb9e558978c // indirect
+	github.com/garslo/gogen v0.0.0-20170306192744-1d203ffc1f61 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/go-bexpr v0.1.10 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/mitchellh/pointerstructure v1.2.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
+	golang.org/x/mod v0.4.2 // indirect
+	golang.org/x/tools v0.1.0 // indirect
+	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 )

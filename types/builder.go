@@ -1,11 +1,15 @@
 package types
 
 import (
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 // Generate SSZ encoding with the following:
-// sszgen --path types --include ../go-ethereum/common/hexutil --objs Eth1Data,BeaconBlockHeader,SignedBeaconBlockHeader,ProposerSlashing,Checkpoint,AttestationData,IndexedAttestation,AttesterSlashing,Attestation,Deposit,VoluntaryExit,SyncAggregate,ExecutionPayloadHeaderV1,BlindedBeaconBlockBodyV1,BlindedBeaconBlockV1
+// sszgen --path types --include ../go-ethereum/common/hexutil --objs Eth1Data,BeaconBlockHeader,SignedBeaconBlockHeader,ProposerSlashing,Checkpoint,AttestationData,IndexedAttestation,AttesterSlashing,Attestation,Deposit,VoluntaryExit,SyncAggregate,ExecutionPayloadHeaderV1,BlindedBeaconBlockBodyV1,BlindedBeaconBlockV1,RegisterValidatorRequestMessage,BuilderBidV1,SignedBuilderBidV1
+// note: currently needing to first set ExecutionPayloadHeaderV1.Payload type to Hash before running as there is bug in sszgen preventing it to locate U256
 
 type Eth1Data struct {
 	DepositRoot  Root           `json:"depositRoot" ssz-size:"32"`
@@ -90,7 +94,7 @@ type ExecutionPayloadHeaderV1 struct {
 	GasUsed          hexutil.Uint64 `json:"gasUsed"`
 	Timestamp        hexutil.Uint64 `json:"timestamp"`
 	ExtraData        Hash           `json:"extraData" ssz-size:"32"`
-	BaseFeePerGas    Hash           `json:"baseFeePerGas" ssz-max:"32"` // TODO should be actual u256
+	BaseFeePerGas    U256           `json:"baseFeePerGas" ssz-max:"32"`
 	BlockHash        Hash           `json:"blockHash" ssz-size:"32"`
 	TransactionsRoot Root           `json:"transactionsRoot" ssz-size:"32"`
 }
@@ -125,7 +129,7 @@ type RegisterValidatorRequestMessage struct {
 
 type BuilderBidV1 struct {
 	Header *ExecutionPayloadHeaderV1 `json:"header"`
-	Value  hexutil.Uint64            `json:"value"` // TODO: make uint256
+	Value  U256                      `json:"value" ssz-size:"32"`
 	Pubkey PublicKey                 `json:"pubkey" ssz-size:"48"`
 }
 
@@ -135,24 +139,24 @@ type SignedBuilderBidV1 struct {
 }
 
 func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, error) {
-	// txs, err := decodeTransactions(p.Transactions)
-	// if err != nil {
-	//         return nil, err
-	// }
+	txs, err := decodeTransactions(p.Transactions)
+	if err != nil {
+		return nil, err
+	}
 	return &ExecutionPayloadHeaderV1{
-		// ParentHash:       p.ParentHash,
-		// FeeRecipient:     p.FeeRecipient,
-		// StateRoot:        p.StateRoot,
-		// ReceiptsRoot:     p.ReceiptsRoot,
-		// LogsBloom:        p.LogsBloom,
-		// PrevRandao:       p.Random,
-		// BlockNumber:      p.Number,
-		// GasLimit:         p.GasLimit,
-		// GasUsed:          p.GasUsed,
-		// Timestamp:        p.Timestamp,
-		// ExtraData:        p.ExtraData,
-		// BaseFeePerGas:    (*big.Int)(p.BaseFeePerGas),
-		// BlockHash:        p.BlockHash,
-		// TransactionsRoot: types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil)),
+		ParentHash:       [32]byte(p.ParentHash),
+		FeeRecipient:     [20]byte(p.FeeRecipient),
+		StateRoot:        [32]byte(p.StateRoot),
+		ReceiptsRoot:     [32]byte(p.ReceiptsRoot),
+		LogsBloom:        [256]byte(p.LogsBloom),
+		Random:           [32]byte(p.Random),
+		Number:           hexutil.Uint64(p.Number),
+		GasLimit:         hexutil.Uint64(p.GasLimit),
+		GasUsed:          hexutil.Uint64(p.GasUsed),
+		Timestamp:        hexutil.Uint64(p.Timestamp),
+		ExtraData:        [32]byte(common.BytesToHash(p.ExtraData)),
+		BaseFeePerGas:    [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
+		BlockHash:        [32]byte(p.BlockHash),
+		TransactionsRoot: [32]byte(types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))),
 	}, nil
 }

@@ -93,7 +93,7 @@ func BlockToPayload(b *ethTypes.Block) (*types.ExecutionPayloadV1, error) {
 		FeeRecipient:  b.Coinbase(),
 		StateRoot:     b.Root(),
 		ReceiptsRoot:  b.ReceiptHash(),
-		LogsBloom:     b.Bloom().Bytes(),
+		LogsBloom:     b.Bloom(),
 		Random:        b.MixDigest(),
 		Number:        b.NumberU64(),
 		GasLimit:      b.GasLimit(),

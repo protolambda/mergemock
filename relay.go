@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/big"
 	. "mergemock/api"
 	"mergemock/rpc"
 	"mergemock/types"
@@ -19,7 +18,10 @@ import (
 )
 
 const (
-	InvalidSignature = -32005
+	UnknownHash         = -32001
+	UnknownValidator    = -32002
+	UnknownFeeRecipient = -32003
+	InvalidSignature    = -32005
 )
 
 var dst = []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_")
@@ -115,7 +117,7 @@ type RelayBackend struct {
 	log            *logrus.Logger
 	engine         *EngineCmd
 	recentPayloads *lru.Cache
-	pk             bls.PublicKey
+	pk             types.PublicKey
 	sk             bls.SecretKey
 }
 
@@ -130,7 +132,9 @@ func NewRelayBackend(log *logrus.Logger) (*RelayBackend, error) {
 		return nil, err
 	}
 	sk, _ := bls.RandKey()
-	return &RelayBackend{log, engine, cache, sk.PublicKey(), sk}, nil
+	var pk types.PublicKey
+	copy(pk[:], sk.PublicKey().Marshal())
+	return &RelayBackend{log, engine, cache, pk, sk}, nil
 }
 
 type hashTreeRoot interface {
@@ -164,22 +168,29 @@ func (r *RelayBackend) RegisterValidatorV1(ctx context.Context, message types.Re
 	return &res, nil
 }
 
-func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, hash common.Hash) (*types.SignedBuilderBidV1, error) {
-	id := r.engine.backend.mostRecentId
-	plog := r.log.WithField("payload_id", id).WithField("hash", hash)
-	payload, ok := r.engine.backend.recentPayloads.Get(r.engine.backend.mostRecentId)
+func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, parentHash common.Hash) (*types.SignedBuilderBidV1, error) {
+	plog := r.log.WithField("parentHash", parentHash)
+	payload, ok := r.engine.backend.recentPayloads.Get(parentHash)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown hash %d", parentHash), Id: int(UnknownHash)}
 	}
 	payloadHeader, err := types.PayloadToPayloadHeader(payload.(*types.ExecutionPayloadV1))
 	r.recentPayloads.Add(payloadHeader.BlockHash, payload)
 	if err != nil {
 		return nil, err
 	}
-	val := big.NewInt(1)
 	plog.Info("Consensus client retrieved prepared payload header")
-	return &types.SignedBuilderBidV1{Message: &types.BuilderBidV1{Header: payloadHeader, Value: hexutil.Uint64(val.Uint64())}}, nil
+
+	bid := types.BuilderBidV1{Header: payloadHeader, Value: [32]byte{0x1}, Pubkey: r.pk}
+	msg, err := bid.HashTreeRoot()
+	if err != nil {
+		return nil, err
+	}
+	var sig types.Signature
+	tmp := r.sk.Sign(msg[:])
+	copy(sig[:], tmp.Marshal())
+	return &types.SignedBuilderBidV1{Message: &bid, Signature: sig}, nil
 }
 
 func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeaconBlockV1, signature hexutil.Bytes) (*types.ExecutionPayloadV1, error) {

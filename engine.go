@@ -174,7 +174,6 @@ type EngineBackend struct {
 	mockChain        *MockChain
 	payloadIdCounter uint64
 	recentPayloads   *lru.Cache
-	mostRecentId     types.PayloadID
 }
 
 func NewEngineBackend(log logrus.Ext1FieldLogger, mock *MockChain) (*EngineBackend, error) {
@@ -182,7 +181,7 @@ func NewEngineBackend(log logrus.Ext1FieldLogger, mock *MockChain) (*EngineBacke
 	if err != nil {
 		return nil, err
 	}
-	return &EngineBackend{log, mock, 0, cache, types.PayloadID{}}, nil
+	return &EngineBackend{log, mock, 0, cache}, nil
 }
 
 func (e *EngineBackend) GetPayloadV1(ctx context.Context, id types.PayloadID) (*types.ExecutionPayloadV1, error) {
@@ -267,7 +266,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *types.Fo
 
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
-	e.mostRecentId = id
+	e.recentPayloads.Add(payload.ParentHash, payload)
 
 	return &types.ForkchoiceUpdatedResult{PayloadStatus: types.PayloadStatusV1{Status: types.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

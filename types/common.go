@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
@@ -13,6 +14,7 @@ type Hash [32]byte
 type Root Hash
 type CommitteeBits [64]byte
 type Bloom [256]byte
+type U256 [32]byte
 
 var (
 	ErrLength = fmt.Errorf("incorrect byte length")
@@ -198,4 +200,38 @@ func (b Bloom) String() string {
 
 func (b *Bloom) FromSlice(x []byte) {
 	copy(b[:], x)
+}
+
+func (n U256) MarshalText() ([]byte, error) {
+	x := new(big.Int).SetBytes(n[:])
+	return (*hexutil.Big)(x).MarshalText()
+}
+
+func (n *U256) UnmarshalJSON(input []byte) error {
+	x := new(big.Int)
+	err := (*hexutil.Big)(x).UnmarshalJSON(input)
+	if err != nil {
+		return err
+	}
+	copy(n[:], x.Bytes())
+	return nil
+}
+
+func (n *U256) UnmarshalText(input []byte) error {
+	x := new(big.Int)
+	err := (*hexutil.Big)(x).UnmarshalText(input)
+	if err != nil {
+		return err
+	}
+	copy(n[:], x.Bytes())
+	return nil
+
+}
+
+func (n *U256) String() string {
+	return (*hexutil.Big)(new(big.Int).SetBytes(n[:])).String()
+}
+
+func (n *U256) FromSlice(x []byte) {
+	copy(n[:], x)
 }

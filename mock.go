@@ -505,7 +505,7 @@ func (c *MockChain) ProcessPayload(payload *mmTypes.ExecutionPayloadV1) (*types.
 	if receiptHash := block.ReceiptHash(); receiptHash != common.Hash(payload.ReceiptsRoot) {
 		return nil, fmt.Errorf("receipt root difference: %s <> %s", receiptHash, payload.ReceiptsRoot)
 	}
-	if bloom := block.Bloom(); bloom != types.BytesToBloom(payload.LogsBloom) {
+	if bloom := block.Bloom(); bloom != payload.LogsBloom {
 		return nil, fmt.Errorf("logs bloom difference: %s <> %s", bloom, payload.LogsBloom)
 	}
 	if block.Root() != common.Hash(payload.StateRoot) {

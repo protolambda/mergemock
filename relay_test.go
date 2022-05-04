@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/prysmaticlabs/prysm/shared/bls/blst"
 	bls "github.com/prysmaticlabs/prysm/shared/bls/common"
 	"github.com/sirupsen/logrus"
@@ -22,6 +23,7 @@ func newRelay(t *testing.T) *RelayBackend {
 		t.Fatal("unable to create relay")
 	}
 	relay.engine.JwtSecretPath = newJwt(t)
+	relay.engine.GenesisPath = newGenesis(t)
 	return relay
 }
 
@@ -40,6 +42,21 @@ func newJwt(t *testing.T) string {
 	jwt := []byte("ed6588309287e7dbbb0ca2ba8c8be6e6063a72dc0f2235999ee6a751e8459cbc")
 	if err := os.WriteFile(path, jwt, 0644); err != nil {
 		t.Fatal("unable to write tmp jwt file")
+	}
+	return path
+}
+
+func newGenesis(t *testing.T) string {
+	path := fmt.Sprintf("%s/genesis.json", t.TempDir())
+	genesis := core.DeveloperGenesisBlock(5, 30_000_000, common.Address{})
+	genesis.Config.MergeForkBlock = common.Big0
+	genesis.Config.TerminalTotalDifficulty = common.Big0
+	buf, err := genesis.MarshalJSON()
+	if err != nil {
+		t.Fatal("cannot marshal tmp genesis")
+	}
+	if err := os.WriteFile(path, buf, 0644); err != nil {
+		t.Fatal("unable to write tmp genesis file")
 	}
 	return path
 }

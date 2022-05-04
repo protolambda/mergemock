@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
-	. "mergemock/api"
+	"mergemock/api"
 	"mergemock/rpc"
 	"mergemock/types"
 	"net/http"
@@ -101,15 +101,12 @@ func (c *EngineCmd) RunNode() {
 	go c.srv.ListenAndServe()
 	go c.wsSrv.ListenAndServe()
 
-	for {
-		select {
-		case <-c.close:
-			c.rpcSrv.Stop()
-			c.srv.Close()
-			c.wsSrv.Close()
-			return
-			// TODO: any other tasks to run in this loop? mock sync changes?
-		}
+	for range c.close {
+		c.rpcSrv.Stop()
+		c.srv.Close()
+		c.wsSrv.Close()
+		return
+		// TODO: any other tasks to run in this loop? mock sync changes?
 	}
 }
 
@@ -190,7 +187,7 @@ func (e *EngineBackend) GetPayloadV1(ctx context.Context, id types.PayloadID) (*
 	payload, ok := e.recentPayloads.Get(id)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(UnavailablePayload)}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", id), Id: int(api.UnavailablePayload)}
 	}
 
 	plog.Info("Consensus client retrieved prepared payload")
@@ -257,7 +254,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *types.Fo
 		return nil, err
 	}
 
-	payload, err := BlockToPayload(bl)
+	payload, err := api.BlockToPayload(bl)
 	if err != nil {
 		plog.WithError(err).Error("Failed to convert block to payload")
 		// TODO: proper error codes

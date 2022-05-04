@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	. "mergemock/api"
+	"mergemock/api"
 	"mergemock/rpc"
 	"mergemock/types"
 	"net/http"
@@ -23,8 +23,6 @@ const (
 	UnknownFeeRecipient = -32003
 	InvalidSignature    = -32005
 )
-
-var dst = []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_")
 
 type RelayCmd struct {
 	// connectivity options
@@ -76,13 +74,10 @@ func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 func (r *RelayCmd) RunNode() {
 	r.log.Info("started")
 	go r.srv.ListenAndServe()
-	for {
-		select {
-		case <-r.close:
-			r.rpcSrv.Stop()
-			r.srv.Close()
-			return
-		}
+	for range r.close {
+		r.rpcSrv.Stop()
+		r.srv.Close()
+		return
 	}
 }
 
@@ -199,7 +194,7 @@ func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeac
 	payload, ok := r.recentPayloads.Get(hash)
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
-		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", hash), Id: int(UnavailablePayload)}
+		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", hash), Id: int(api.UnavailablePayload)}
 	}
 	plog.Info("Consensus client retrieved prepared payload header")
 	return payload.(*types.ExecutionPayloadV1), nil

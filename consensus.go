@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	. "mergemock/api"
+	"mergemock/api"
 	"mergemock/p2p"
 	"mergemock/rpc"
 	"mergemock/types"
@@ -59,7 +59,6 @@ type ConsensusCmd struct {
 	db        ethdb.Database
 
 	ethashCfg ethash.Config
-	peer      *p2p.Conn
 
 	mockChain *MockChain
 }
@@ -303,7 +302,7 @@ func (c *ConsensusCmd) RunNode() {
 					BaseFeePerGas: c.mockChain.CurrentHeader().BaseFee,
 					BlockHash:     common.HexToHash("0xdeadbeef"),
 				}
-				go NewPayloadV1(c.ctx, c.engine, c.log, payload)
+				go api.NewPayloadV1(c.ctx, c.engine, c.log, payload)
 				continue
 			}
 
@@ -385,7 +384,7 @@ func (c *ConsensusCmd) RunNode() {
 }
 
 func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, attributes *types.PayloadAttributesV1) (*types.PayloadID, error) {
-	result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
+	result, _ := api.ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
 	if result.PayloadStatus.Status != types.ExecutionValid {
 		c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
 		return nil, fmt.Errorf("update not considered valid")
@@ -396,11 +395,11 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, at
 func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId types.PayloadID) (*types.ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
 	if c.builder != nil {
-		header, err := BuilderGetHeader(c.ctx, c.builder, log, c.mockChain.CurrentHeader().Hash())
+		header, err := api.BuilderGetHeader(c.ctx, c.builder, log, c.mockChain.CurrentHeader().Hash())
 		if err != nil {
 			return nil, err
 		}
-		payload, err := BuilderGetPayload(ctx, c.builder, log, header)
+		payload, err := api.BuilderGetPayload(ctx, c.builder, log, header)
 		if err != nil {
 			return nil, err
 		}
@@ -408,7 +407,7 @@ func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1Field
 	}
 
 	// Otherwise, get payload from EL.
-	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
+	payload, err := api.GetPayloadV1(c.ctx, c.engine, log, payloadId)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +443,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId types.
 	}
 
 	// Send it back to execution layer for execution
-	res, err := NewPayloadV1(ctx, c.engine, log, payload)
+	res, err := api.NewPayloadV1(ctx, c.engine, log, payload)
 	if err == nil && res.Status == types.ExecutionValid {
 		log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
 		return
@@ -464,14 +463,14 @@ func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *ethTypes
 	defer cancel()
 
 	// derive the random 32 bytes from the block hash for mocking ease
-	payload, err := BlockToPayload(block)
+	payload, err := api.BlockToPayload(block)
 
 	if err != nil {
 		log.WithError(err).Error("Failed to convert execution block to execution payload")
 		return
 	}
 
-	NewPayloadV1(ctx, c.engine, log, payload)
+	api.NewPayloadV1(ctx, c.engine, log, payload)
 }
 
 func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *ethTypes.Header, cfg vm.Config, accounts []TestAccount) []*ethTypes.Transaction {

@@ -75,8 +75,7 @@ func TestGetHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal("unable to get header: ", err)
 	}
-	// TODO: For some reason, bytes.Equal(a, b) returns false ?
-	if bytes.Compare(bid.Message.Header.ParentHash[:], parentHash[:]) != 0 {
+	if !bytes.Equal(bid.Message.Header.ParentHash[:], parentHash[:]) {
 		t.Fatal("didn't build on expected parent")
 	}
 	ok, err := verifySignature(bid.Message, relay.pk[:], bid.Signature[:])

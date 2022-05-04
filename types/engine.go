@@ -30,7 +30,7 @@ type ExecutionPayloadV1 struct {
 	FeeRecipient  common.Address `json:"feeRecipient"  gencodec:"required"`
 	StateRoot     common.Hash    `json:"stateRoot"     gencodec:"required"`
 	ReceiptsRoot  common.Hash    `json:"receiptsRoot"  gencodec:"required"`
-	LogsBloom     [256]byte      `json:"logsBloom"     gencodec:"required"`
+	LogsBloom     types.Bloom    `json:"logsBloom"     gencodec:"required"`
 	Random        common.Hash    `json:"prevRandao"    gencodec:"required"`
 	Number        uint64         `json:"blockNumber"   gencodec:"required"`
 	GasLimit      uint64         `json:"gasLimit"      gencodec:"required"`
@@ -49,7 +49,6 @@ type executionPayloadMarshalling struct {
 	Timestamp     hexutil.Uint64
 	BaseFeePerGas *hexutil.Big
 	ExtraData     hexutil.Bytes
-	LogsBloom     hexutil.Bytes
 	Transactions  []hexutil.Bytes
 }
 
@@ -75,10 +74,7 @@ func (params *ExecutionPayloadV1) ValidateHash() bool {
 		Extra:       params.ExtraData,
 		MixDigest:   params.Random,
 	}
-	if header.Hash() != common.Hash(params.BlockHash) {
-		return false
-	}
-	return true
+	return header.Hash() == params.BlockHash
 }
 
 type ExecutePayloadStatus string

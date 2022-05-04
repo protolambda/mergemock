@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"mergemock/types"
+	"os"
 	"testing"
 	"time"
 
@@ -14,24 +16,37 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func newRelay() *RelayBackend {
-	relay, _ := NewRelayBackend(logrus.New())
+func newRelay(t *testing.T) *RelayBackend {
+	relay, err := NewRelayBackend(logrus.New())
+	if err != nil {
+		t.Fatal("unable to create relay")
+	}
+	relay.engine.JwtSecretPath = newJwt(t)
 	return relay
 }
 
-func newKeypair() (types.PublicKey, bls.SecretKey) {
+func newKeypair(t *testing.T) (types.PublicKey, bls.SecretKey) {
 	sk, err := blst.RandKey()
 	if err != nil {
-		panic(err)
+		t.Fatal("unable to generate bls key pair", err)
 	}
 	var pk types.PublicKey
 	pk.FromSlice(sk.PublicKey().Marshal())
 	return pk, sk
 }
 
+func newJwt(t *testing.T) string {
+	path := fmt.Sprintf("%s/jwt.hex", t.TempDir())
+	jwt := []byte("ed6588309287e7dbbb0ca2ba8c8be6e6063a72dc0f2235999ee6a751e8459cbc")
+	if err := os.WriteFile(path, jwt, 0644); err != nil {
+		t.Fatal("unable to write tmp jwt file")
+	}
+	return path
+}
+
 func TestValidatorRegistration(t *testing.T) {
-	relay := newRelay()
-	pk, sk := newKeypair()
+	relay := newRelay(t)
+	pk, sk := newKeypair(t)
 	msg := types.RegisterValidatorRequestMessage{
 		FeeRecipient: [20]byte{0x42},
 		GasTarget:    15_000_000,
@@ -50,9 +65,9 @@ func TestValidatorRegistration(t *testing.T) {
 
 func TestGetHeader(t *testing.T) {
 	ctx := context.Background()
-	relay := newRelay()
+	relay := newRelay(t)
 	relay.engine.Run(ctx)
-	pk, _ := newKeypair()
+	pk, _ := newKeypair(t)
 	parent := relay.engine.mockChain().CurrentHeader()
 	parentHash := parent.Hash()
 

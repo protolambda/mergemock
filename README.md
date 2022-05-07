@@ -107,6 +107,16 @@ Tracing options
   --trace.limit               maximum length of output, but zero means unlimited (default: 0) (type: int)
 ```
 
+## Development
+
+For development, install the following tools:
+
+```bash
+go install honnef.co/go/tools/cmd/staticcheck@v0.3.1
+go install github.com/ferranbt/fastssz/sszgen@latest
+go install github.com/fjl/gencodec@master
+```
+
 ## License
 
 MIT, see [`LICENSE`](./LICENSE) file.

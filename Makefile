@@ -12,3 +12,10 @@ lint:
 	gofmt -d ./
 	go vet ./...
 	staticcheck ./...
+
+generate-ssz:
+	rm -f types/builder_encoding.go
+	sszgen --path types --include ../go-ethereum/common/hexutil --objs Eth1Data,BeaconBlockHeader,SignedBeaconBlockHeader,ProposerSlashing,Checkpoint,AttestationData,IndexedAttestation,AttesterSlashing,Attestation,Deposit,VoluntaryExit,SyncAggregate,ExecutionPayloadHeaderV1,BlindedBeaconBlockBodyV1,BlindedBeaconBlockV1,RegisterValidatorRequestMessage,BuilderBidV1,SignedBuilderBidV1
+
+generate: generate-ssz
+	go generate ./...

@@ -7,9 +7,8 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
-// Generate SSZ encoding with the following:
-// sszgen --path types --include ../go-ethereum/common/hexutil --objs Eth1Data,BeaconBlockHeader,SignedBeaconBlockHeader,ProposerSlashing,Checkpoint,AttestationData,IndexedAttestation,AttesterSlashing,Attestation,Deposit,VoluntaryExit,SyncAggregate,ExecutionPayloadHeaderV1,BlindedBeaconBlockBodyV1,BlindedBeaconBlockV1,RegisterValidatorRequestMessage,BuilderBidV1,SignedBuilderBidV1
-// note: currently needing to first set ExecutionPayloadHeaderV1.Payload type to Hash before running as there is bug in sszgen preventing it to locate U256
+// Generate SSZ encoding: make generate-ssz
+// note: currently needing to first change type U256 to Hash before running as there is bug in sszgen preventing it to locate U256
 
 type Eth1Data struct {
 	DepositRoot  Root           `json:"depositRoot" ssz-size:"32"`
@@ -121,10 +120,15 @@ type BlindedBeaconBlockV1 struct {
 }
 
 type RegisterValidatorRequestMessage struct {
-	FeeRecipient Address        `json:"feeRecipient" ssz-size:"20"`
-	GasTarget    hexutil.Uint64 `json:"gasTarget"`
-	Timestamp    hexutil.Uint64 `json:"timestamp"`
-	Pubkey       PublicKey      `json:"pubkey" ssz-size:"48"`
+	FeeRecipient Address   `json:"fee_recipient" ssz-size:"20"`
+	GasLimit     uint64    `json:"gas_limit,string"`
+	Timestamp    uint64    `json:"timestamp,string"`
+	Pubkey       PublicKey `json:"pubkey" ssz-size:"48"`
+}
+
+type RegisterValidatorRequest struct {
+	Message   RegisterValidatorRequestMessage `json:"message"`
+	Signature hexutil.Bytes                   `json:"signature"`
 }
 
 type BuilderBidV1 struct {

@@ -27,7 +27,7 @@ var (
 	errInvalidSignature = errors.New("invalid signature")
 
 	PathRegisterValidator = "/eth/v1/builder/validators"
-	PathGetHeader         = "/eth/v1/builder/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/header"
+	PathGetHeader         = "/eth/v1/builder/header/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{pubkey:0x[a-fA-F0-9]+}"
 )
 
 type RelayCmd struct {
@@ -103,21 +103,10 @@ func (r *RelayCmd) initLogger(ctx context.Context) error {
 	return nil
 }
 
-func (r *RelayCmd) getRouter(backend *RelayBackend) http.Handler {
-	router := mux.NewRouter()
-
-	router.HandleFunc(PathRegisterValidator, backend.handleRegisterValidator).Methods(http.MethodPost)
-	router.HandleFunc(PathGetHeader, backend.handleGetHeader).Methods(http.MethodGet)
-
-	router.Use(mux.CORSMethodMiddleware(router))
-	loggedRouter := LoggingMiddleware(router, r.log)
-	return loggedRouter
-}
-
 func (r *RelayCmd) startRESTApi(ctx context.Context, backend *RelayBackend) {
 	r.srv = &http.Server{
 		Addr:    r.ListenAddr,
-		Handler: r.getRouter(backend),
+		Handler: backend.getRouter(),
 
 		ReadTimeout:       r.Timeout.Read,
 		ReadHeaderTimeout: r.Timeout.ReadHeader,
@@ -170,6 +159,15 @@ func verifySignature(obj hashTreeRoot, pk, s []byte) (bool, error) {
 	return sig.Verify(pubkey, msg[:]), nil
 }
 
+func (r *RelayBackend) getRouter() http.Handler {
+	router := mux.NewRouter()
+	router.HandleFunc(PathRegisterValidator, r.handleRegisterValidator).Methods(http.MethodPost)
+	router.HandleFunc(PathGetHeader, r.handleGetHeader).Methods(http.MethodGet)
+	router.Use(mux.CORSMethodMiddleware(router))
+	loggedRouter := LoggingMiddleware(router, r.log)
+	return loggedRouter
+}
+
 func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
 	payload := new(types.RegisterValidatorRequest)
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
@@ -189,8 +187,8 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 
 	ok, err := verifySignature(&payload.Message, payload.Message.Pubkey[:], payload.Signature)
 	if !ok || err != nil {
-		r.log.Error("invalid signature", "err", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		r.log.WithError(err).Error("error verifying signature")
+		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -201,7 +199,7 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 	vars := mux.Vars(req)
 	slot := vars["slot"]
 	parentHash := vars["parent_hash"]
-	pubkey := req.URL.Query().Get("pubkey")
+	pubkey := vars["pubkey"]
 	r.log.WithFields(logrus.Fields{
 		"slot":       slot,
 		"parentHash": parentHash,

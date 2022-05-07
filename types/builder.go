@@ -120,10 +120,10 @@ type BlindedBeaconBlockV1 struct {
 }
 
 type RegisterValidatorRequestMessage struct {
-	FeeRecipient Address   `json:"fee_recipient" ssz-size:"20"`
-	GasLimit     uint64    `json:"gas_limit,string"`
-	Timestamp    uint64    `json:"timestamp,string"`
-	Pubkey       PublicKey `json:"pubkey" ssz-size:"48"`
+	FeeRecipient hexutil.Bytes `json:"fee_recipient" ssz-size:"20"` // type was Address
+	GasLimit     uint64        `json:"gas_limit,string"`
+	Timestamp    uint64        `json:"timestamp,string"`
+	Pubkey       hexutil.Bytes `json:"pubkey" ssz-size:"48"` // type was PublicKey
 }
 
 type RegisterValidatorRequest struct {

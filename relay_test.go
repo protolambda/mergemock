@@ -1,36 +1,58 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"mergemock/types"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/prysmaticlabs/prysm/shared/bls/blst"
 	bls "github.com/prysmaticlabs/prysm/shared/bls/common"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
 )
 
-func newRelay(t *testing.T) *RelayBackend {
+type testRelayBackend struct {
+	*RelayBackend
+}
+
+func newTestRelay(t *testing.T) *testRelayBackend {
 	relay, err := NewRelayBackend(logrus.New())
 	if err != nil {
 		t.Fatal("unable to create relay")
 	}
-	relay.engine.JwtSecretPath = newJwt(t)
-	relay.engine.GenesisPath = newGenesis(t)
-	return relay
+
+	testRelay := testRelayBackend{relay}
+	testRelay.engine.JwtSecretPath = newJwt(t)
+	testRelay.engine.GenesisPath = newGenesis(t)
+	return &testRelay
 }
 
-func newKeypair(t *testing.T) (types.PublicKey, bls.SecretKey) {
+func (mr *testRelayBackend) testRequest(t *testing.T, method string, path string, payload any) *httptest.ResponseRecorder {
+	payloadBytes, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(method, path, bytes.NewReader(payloadBytes))
+	require.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	mr.getRouter().ServeHTTP(rr, req)
+	return rr
+}
+
+func newKeypair(t *testing.T) (pubkey []byte, privkey bls.SecretKey) {
 	sk, err := blst.RandKey()
 	if err != nil {
 		t.Fatal("unable to generate bls key pair", err)
 	}
-	var pk types.PublicKey
-	pk.FromSlice(sk.PublicKey().Marshal())
-	return pk, sk
+	return sk.PublicKey().Marshal(), sk
 }
 
 func newJwt(t *testing.T) string {
@@ -57,24 +79,24 @@ func newGenesis(t *testing.T) string {
 	return path
 }
 
-// func TestValidatorRegistration(t *testing.T) {
-// 	relay := newRelay(t)
-// 	pk, sk := newKeypair(t)
-// 	msg := types.RegisterValidatorRequestMessage{
-// 		FeeRecipient: [20]byte{0x42},
-// 		GasTarget:    15_000_000,
-// 		Timestamp:    hexutil.Uint64(time.Now().Unix()),
-// 		Pubkey:       pk,
-// 	}
-// 	root, err := msg.HashTreeRoot()
-// 	if err != nil {
-// 		t.Fatal("can't compute root")
-// 	}
-// 	resp, err := relay.RegisterValidatorV1(context.Background(), msg, sk.Sign(root[:]).Marshal())
-// 	if err != nil || (resp == nil || *resp != "OK") {
-// 		t.Fatal("unable to register validator: ", err)
-// 	}
-// }
+func TestValidatorRegistration(t *testing.T) {
+	relay := newTestRelay(t)
+	pk, sk := newKeypair(t)
+	msg := types.RegisterValidatorRequestMessage{
+		FeeRecipient: []byte{0x42},
+		GasLimit:     15_000_000,
+		Timestamp:    uint64(time.Now().Unix()),
+		Pubkey:       pk,
+	}
+	root, err := msg.HashTreeRoot()
+	require.NoError(t, err)
+
+	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
+		Message:   msg,
+		Signature: sk.Sign(root[:]).Marshal(),
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+}
 
 // func TestGetHeader(t *testing.T) {
 // 	ctx := context.Background()

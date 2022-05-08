@@ -152,9 +152,9 @@ func (c *EngineCmd) makeMockChain() (*MockChain, error) {
 	return NewMockChain(c.log, posEngine, c.GenesisPath, db, &c.TraceLogConfig)
 }
 
-func (c *EngineCmd) mockChain() *MockChain {
-	return c.backend.mockChain
-}
+// func (c *EngineCmd) mockChain() *MockChain {
+// 	return c.backend.mockChain
+// }
 
 func (c *EngineCmd) startRPC(ctx context.Context) {
 	rpcSrv, err := rpc.NewServer("engine", c.backend, true)

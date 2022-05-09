@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/gorilla/mux"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/prysmaticlabs/prysm/shared/bls"
@@ -75,6 +76,7 @@ func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 	}
 	r.startRESTApi(ctx, backend)
 	go r.RunNode()
+	log.Info("Relay listening on " + r.ListenAddr)
 	return nil
 }
 
@@ -163,10 +165,13 @@ func verifySignature(obj hashTreeRoot, pk, s []byte) (bool, error) {
 
 func (r *RelayBackend) getRouter() http.Handler {
 	router := mux.NewRouter()
+
+	// Add routes
 	router.HandleFunc(pathStatus, r.handleStatus).Methods(http.MethodGet)
 	router.HandleFunc(pathRegisterValidator, r.handleRegisterValidator).Methods(http.MethodPost)
 	router.HandleFunc(pathGetHeader, r.handleGetHeader).Methods(http.MethodGet)
-	router.Use(mux.CORSMethodMiddleware(router))
+
+	// Add logging and return router
 	loggedRouter := LoggingMiddleware(router, r.log)
 	return loggedRouter
 }

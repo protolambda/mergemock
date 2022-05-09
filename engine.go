@@ -264,7 +264,6 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *types.Fo
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 	e.recentPayloads.Add(payload.ParentHash, payload)
-	fmt.Println("=== added recentPayload", payload.ParentHash.Hex())
 
 	return &types.ForkchoiceUpdatedResult{PayloadStatus: types.PayloadStatusV1{Status: types.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

@@ -27,8 +27,9 @@ var (
 	errInvalidPubkey    = errors.New("invalid pubkey")
 	errInvalidSignature = errors.New("invalid signature")
 
-	PathRegisterValidator = "/eth/v1/builder/validators"
-	PathGetHeader         = "/eth/v1/builder/header/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{pubkey:0x[a-fA-F0-9]+}"
+	pathStatus            = "/eth/v1/builder/status"
+	pathRegisterValidator = "/eth/v1/builder/validators"
+	pathGetHeader         = "/eth/v1/builder/header/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{pubkey:0x[a-fA-F0-9]+}"
 )
 
 type RelayCmd struct {
@@ -162,11 +163,16 @@ func verifySignature(obj hashTreeRoot, pk, s []byte) (bool, error) {
 
 func (r *RelayBackend) getRouter() http.Handler {
 	router := mux.NewRouter()
-	router.HandleFunc(PathRegisterValidator, r.handleRegisterValidator).Methods(http.MethodPost)
-	router.HandleFunc(PathGetHeader, r.handleGetHeader).Methods(http.MethodGet)
+	router.HandleFunc(pathStatus, r.handleStatus).Methods(http.MethodGet)
+	router.HandleFunc(pathRegisterValidator, r.handleRegisterValidator).Methods(http.MethodPost)
+	router.HandleFunc(pathGetHeader, r.handleGetHeader).Methods(http.MethodGet)
 	router.Use(mux.CORSMethodMiddleware(router))
 	loggedRouter := LoggingMiddleware(router, r.log)
 	return loggedRouter
+}
+
+func (r *RelayBackend) handleStatus(w http.ResponseWriter, req *http.Request) {
+	w.WriteHeader(http.StatusOK)
 }
 
 func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {

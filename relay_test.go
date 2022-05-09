@@ -86,6 +86,12 @@ func newGenesis(t *testing.T) string {
 	return path
 }
 
+func TestStatusEndpoint(t *testing.T) {
+	relay := newTestRelay(t)
+	rr := relay.testRequest(t, "GET", "/eth/v1/builder/status", nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
 func TestValidatorRegistration(t *testing.T) {
 	relay := newTestRelay(t)
 	pk, sk := newKeypair(t)
@@ -98,11 +104,23 @@ func TestValidatorRegistration(t *testing.T) {
 	root, err := msg.HashTreeRoot()
 	require.NoError(t, err)
 
+	// Success
+	sig := sk.Sign(root[:]).Marshal()
 	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
 		Message:   &msg,
-		Signature: sk.Sign(root[:]).Marshal(),
+		Signature: sig,
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
+
+	// Invalid signature
+	sigInvalid := sig
+	sigInvalid[len(sig)-1] = 0x00
+	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
+		Message:   &msg,
+		Signature: sigInvalid,
+	})
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.Equal(t, errInvalidSignature.Error()+"\n", rr.Body.String())
 }
 
 func TestGetHeader(t *testing.T) {

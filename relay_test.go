@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"mergemock/types"
@@ -36,12 +37,18 @@ func newTestRelay(t *testing.T) *testRelayBackend {
 }
 
 func (mr *testRelayBackend) testRequest(t *testing.T, method string, path string, payload any) *httptest.ResponseRecorder {
-	payloadBytes, err := json.Marshal(payload)
-	require.NoError(t, err)
+	var req *http.Request
+	var err error
 
-	req, err := http.NewRequest(method, path, bytes.NewReader(payloadBytes))
-	require.NoError(t, err)
+	if payload == nil {
+		req, err = http.NewRequest(method, path, nil)
+	} else {
+		payloadBytes, err2 := json.Marshal(payload)
+		require.NoError(t, err2)
+		req, err = http.NewRequest(method, path, bytes.NewReader(payloadBytes))
+	}
 
+	require.NoError(t, err)
 	rr := httptest.NewRecorder()
 	mr.getRouter().ServeHTTP(rr, req)
 	return rr
@@ -92,47 +99,47 @@ func TestValidatorRegistration(t *testing.T) {
 	require.NoError(t, err)
 
 	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
-		Message:   msg,
+		Message:   &msg,
 		Signature: sk.Sign(root[:]).Marshal(),
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
-// func TestGetHeader(t *testing.T) {
-// 	ctx := context.Background()
-// 	relay := newRelay(t)
-// 	relay.engine.Run(ctx)
-// 	pk, _ := newKeypair(t)
-// 	parent := relay.engine.mockChain().CurrentHeader()
-// 	parentHash := parent.Hash()
+func TestGetHeader(t *testing.T) {
+	ctx := context.Background()
+	relay := newTestRelay(t)
+	relay.engine.Run(ctx)
+	pk, _ := newKeypair(t)
+	parent := relay.engine.mockChain().CurrentHeader()
+	parentHash := parent.Hash()
 
-// 	if _, err := relay.engine.backend.ForkchoiceUpdatedV1(
-// 		ctx,
-// 		&types.ForkchoiceStateV1{
-// 			HeadBlockHash:      parentHash,
-// 			SafeBlockHash:      parentHash,
-// 			FinalizedBlockHash: parentHash,
-// 		},
-// 		&types.PayloadAttributesV1{
-// 			Timestamp:             parent.Time + 1,
-// 			PrevRandao:            common.Hash{0x01},
-// 			SuggestedFeeRecipient: common.Address{0x02},
-// 		},
-// 	); err != nil {
-// 		t.Fatal("unable to initialize engine")
-// 	}
-// 	bid, err := relay.GetHeaderV1(ctx, hexutil.Uint64(0), hexutil.Bytes(pk[:]), parentHash)
-// 	if err != nil {
-// 		t.Fatal("unable to get header: ", err)
-// 	}
-// 	if !bytes.Equal(bid.Message.Header.ParentHash[:], parentHash[:]) {
-// 		t.Fatal("didn't build on expected parent")
-// 	}
-// 	ok, err := verifySignature(bid.Message, relay.pk[:], bid.Signature[:])
-// 	if err != nil {
-// 		t.Fatal("error verifying signature: ", err)
-// 	}
-// 	if !ok {
-// 		t.Fatal("bid signature not valid")
-// 	}
-// }
+	if _, err := relay.engine.backend.ForkchoiceUpdatedV1(
+		ctx,
+		&types.ForkchoiceStateV1{
+			HeadBlockHash:      parentHash,
+			SafeBlockHash:      parentHash,
+			FinalizedBlockHash: parentHash,
+		},
+		&types.PayloadAttributesV1{
+			Timestamp:             parent.Time + 1,
+			PrevRandao:            common.Hash{0x01},
+			SuggestedFeeRecipient: common.Address{0x02},
+		},
+	); err != nil {
+		t.Fatal("unable to initialize engine")
+	}
+
+	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk[:])
+	fmt.Println("path", path)
+	rr := relay.testRequest(t, "GET", path, nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	bid := new(types.SignedBuilderBid)
+	err := json.Unmarshal(rr.Body.Bytes(), bid)
+	require.NoError(t, err)
+
+	require.Equal(t, parentHash[:], bid.Message.Header.ParentHash[:], "didn't build on expected parent")
+	ok, err := verifySignature(bid.Message, relay.pk[:], bid.Signature[:])
+	require.NoError(t, err, "error verifying signature")
+	require.True(t, ok, "bid signature not valid")
+}

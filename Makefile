@@ -5,6 +5,9 @@ all: clean build
 v:
 	@echo "Version: ${GIT_VER}"
 
+build:
+	go build . mergemock
+
 test:
 	go test ./...
 
@@ -15,7 +18,7 @@ lint:
 
 generate-ssz:
 	rm -f types/builder_encoding.go
-	sszgen --path types --include ../go-ethereum/common/hexutil --objs Eth1Data,BeaconBlockHeader,SignedBeaconBlockHeader,ProposerSlashing,Checkpoint,AttestationData,IndexedAttestation,AttesterSlashing,Attestation,Deposit,VoluntaryExit,SyncAggregate,ExecutionPayloadHeaderV1,BlindedBeaconBlockBodyV1,BlindedBeaconBlockV1,RegisterValidatorRequestMessage,BuilderBidV1,SignedBuilderBidV1
+	sszgen --path types --include ../go-ethereum/common/hexutil --objs Eth1Data,BeaconBlockHeader,SignedBeaconBlockHeader,ProposerSlashing,Checkpoint,AttestationData,IndexedAttestation,AttesterSlashing,Attestation,Deposit,VoluntaryExit,SyncAggregate,ExecutionPayloadHeader,VersionedExecutionPayloadHeader,BlindedBeaconBlockBody,BlindedBeaconBlock,RegisterValidatorRequestMessage,BuilderBid,SignedBuilderBid
 
 generate: generate-ssz
 	go generate ./...

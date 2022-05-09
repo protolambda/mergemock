@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mergemock/rpc"
 	"mergemock/types"
 	"net/http"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/prysmaticlabs/prysm/shared/bls"
@@ -185,7 +187,7 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 		return
 	}
 
-	ok, err := verifySignature(&payload.Message, payload.Message.Pubkey[:], payload.Signature)
+	ok, err := verifySignature(payload.Message, payload.Message.Pubkey[:], payload.Signature)
 	if !ok || err != nil {
 		r.log.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
@@ -198,39 +200,61 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	slot := vars["slot"]
-	parentHash := vars["parent_hash"]
+	parentHashHex := vars["parent_hash"]
 	pubkey := vars["pubkey"]
-	r.log.WithFields(logrus.Fields{
+	plog := r.log.WithFields(logrus.Fields{
 		"slot":       slot,
-		"parentHash": parentHash,
+		"parentHash": parentHashHex,
 		"pubkey":     pubkey,
-	}).Info("getHeader")
+	})
+	plog.Info("getHeader")
+
+	payload, ok := r.engine.backend.recentPayloads.Get(common.HexToHash(parentHashHex))
+	if !ok {
+		plog.Warn("Cannot get unknown payload")
+		http.Error(w, "Cannot get unknown payload", http.StatusBadRequest)
+		return
+	}
+
+	payloadHeader, err := types.PayloadToPayloadHeader(payload.(*types.ExecutionPayloadV1))
+	if err != nil {
+		plog.Warn("Cannot convert payload to header")
+		http.Error(w, "cannot convert payload to header", http.StatusBadRequest)
+		return
+	}
+
+	r.recentPayloads.Add(payloadHeader.BlockHash, payload)
+	plog.Info("Consensus client retrieved prepared payload header")
+
+	bid := types.BuilderBid{
+		Header: payloadHeader,
+		Value:  [32]byte{0x1},
+		Pubkey: r.pk,
+	}
+	msg, err := bid.HashTreeRoot()
+	if err != nil {
+		plog.Warn("cannot compute hash tree root")
+		http.Error(w, "cannot compute hash tree root", http.StatusBadRequest)
+		return
+	}
+	var sig types.Signature
+	tmp := r.sk.Sign(msg[:])
+	copy(sig[:], tmp.Marshal())
+	response := &types.SignedBuilderBid{Message: &bid, Signature: sig}
+
+	rs, err := json.Marshal(response)
+	fmt.Println("-------resp:", string(rs))
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, parentHash common.Hash) (*types.SignedBuilderBidV1, error) {
 // 	plog := r.log.WithField("parentHash", parentHash)
-// 	payload, ok := r.engine.backend.recentPayloads.Get(parentHash)
-// 	if !ok {
-// 		plog.Warn("Cannot get unknown payload")
-// 		return nil, &rpc.Error{Err: fmt.Errorf("unknown hash %d", parentHash), Id: int(UnknownHash)}
-// 	}
-// 	payloadHeader, err := types.PayloadToPayloadHeader(payload.(*types.ExecutionPayloadV1))
-// 	r.recentPayloads.Add(payloadHeader.BlockHash, payload)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	plog.Info("Consensus client retrieved prepared payload header")
-
-// 	bid := types.BuilderBidV1{Header: payloadHeader, Value: [32]byte{0x1}, Pubkey: r.pk}
-// 	msg, err := bid.HashTreeRoot()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	var sig types.Signature
-// 	tmp := r.sk.Sign(msg[:])
-// 	copy(sig[:], tmp.Marshal())
-// 	return &types.SignedBuilderBidV1{Message: &bid, Signature: sig}, nil
 // }
 
 // func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeaconBlockV1, signature hexutil.Bytes) (*types.ExecutionPayloadV1, error) {

@@ -152,9 +152,9 @@ func (c *EngineCmd) makeMockChain() (*MockChain, error) {
 	return NewMockChain(c.log, posEngine, c.GenesisPath, db, &c.TraceLogConfig)
 }
 
-// func (c *EngineCmd) mockChain() *MockChain {
-// 	return c.backend.mockChain
-// }
+func (c *EngineCmd) mockChain() *MockChain {
+	return c.backend.mockChain
+}
 
 func (c *EngineCmd) startRPC(ctx context.Context) {
 	rpcSrv, err := rpc.NewServer("engine", c.backend, true)
@@ -264,6 +264,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *types.Fo
 	// store in cache for later retrieval
 	e.recentPayloads.Add(id, payload)
 	e.recentPayloads.Add(payload.ParentHash, payload)
+	fmt.Println("=== added recentPayload", payload.ParentHash.Hex())
 
 	return &types.ForkchoiceUpdatedResult{PayloadStatus: types.PayloadStatusV1{Status: types.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
 }

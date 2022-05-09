@@ -81,42 +81,42 @@ type SyncAggregate struct {
 	CommitteeSignature Signature     `json:"syncCommitteeSignature" ssz-size:"96"`
 }
 
-type ExecutionPayloadHeaderV1 struct {
-	ParentHash       Hash           `json:"parentHash" ssz-size:"32"`
-	FeeRecipient     Address        `json:"feeRecipient" ssz-size:"20"`
-	StateRoot        Root           `json:"stateRoot" ssz-size:"32"`
-	ReceiptsRoot     Root           `json:"receiptsRoot" ssz-size:"32"`
-	LogsBloom        Bloom          `json:"logsBloom" ssz-size:"256"`
-	Random           Hash           `json:"prevRandao" ssz-size:"32"`
-	Number           hexutil.Uint64 `json:"blockNumber"`
-	GasLimit         hexutil.Uint64 `json:"gasLimit"`
-	GasUsed          hexutil.Uint64 `json:"gasUsed"`
+type ExecutionPayloadHeader struct {
+	ParentHash       Hash           `json:"parent_hash" ssz-size:"32"`
+	FeeRecipient     Address        `json:"fee_recipient" ssz-size:"20"`
+	StateRoot        Root           `json:"state_root" ssz-size:"32"`
+	ReceiptsRoot     Root           `json:"receipts_root" ssz-size:"32"`
+	LogsBloom        Bloom          `json:"logs_bloom" ssz-size:"256"`
+	Random           Hash           `json:"prev_randao" ssz-size:"32"`
+	Number           hexutil.Uint64 `json:"block_number"`
+	GasLimit         hexutil.Uint64 `json:"gas_limit"`
+	GasUsed          hexutil.Uint64 `json:"gas_used"`
 	Timestamp        hexutil.Uint64 `json:"timestamp"`
-	ExtraData        Hash           `json:"extraData" ssz-size:"32"`
-	BaseFeePerGas    U256           `json:"baseFeePerGas" ssz-max:"32"`
-	BlockHash        Hash           `json:"blockHash" ssz-size:"32"`
-	TransactionsRoot Root           `json:"transactionsRoot" ssz-size:"32"`
+	ExtraData        Hash           `json:"extra_data" ssz-size:"32"`
+	BaseFeePerGas    U256           `json:"base_fee_per_gas" ssz-max:"32"`
+	BlockHash        Hash           `json:"block_hash" ssz-size:"32"`
+	TransactionsRoot Root           `json:"transactions_root" ssz-size:"32"`
 }
 
-type BlindedBeaconBlockBodyV1 struct {
-	RandaoReveal           Signature                 `json:"randaoReveal" ssz-size:"96"`
-	Eth1Data               *Eth1Data                 `json:"eth1Data"`
-	Graffiti               Hash                      `json:"graffiti" ssz-size:"32"`
-	ProposerSlashings      []*ProposerSlashing       `json:"proposerSlashings" ssz-max:"16"`
-	AttesterSlashings      []*AttesterSlashing       `json:"attesterSlashings" ssz-max:"2"`
-	Attestations           []*Attestation            `json:"attestations" ssz-max:"128"`
-	Deposits               []*Deposit                `json:"deposits" ssz-max:"4"`
-	VoluntaryExits         []*VoluntaryExits         `json:"voluntaryExits" ssz-max:"16"`
-	SyncAggregate          *SyncAggregate            `json:"syncAggregate"`
-	ExecutionPayloadHeader *ExecutionPayloadHeaderV1 `json:"executionPayloadHeader"`
+type BlindedBeaconBlockBody struct {
+	RandaoReveal           Signature               `json:"randaoReveal" ssz-size:"96"`
+	Eth1Data               *Eth1Data               `json:"eth1Data"`
+	Graffiti               Hash                    `json:"graffiti" ssz-size:"32"`
+	ProposerSlashings      []*ProposerSlashing     `json:"proposerSlashings" ssz-max:"16"`
+	AttesterSlashings      []*AttesterSlashing     `json:"attesterSlashings" ssz-max:"2"`
+	Attestations           []*Attestation          `json:"attestations" ssz-max:"128"`
+	Deposits               []*Deposit              `json:"deposits" ssz-max:"4"`
+	VoluntaryExits         []*VoluntaryExits       `json:"voluntaryExits" ssz-max:"16"`
+	SyncAggregate          *SyncAggregate          `json:"syncAggregate"`
+	ExecutionPayloadHeader *ExecutionPayloadHeader `json:"executionPayloadHeader"`
 }
 
-type BlindedBeaconBlockV1 struct {
-	Slot          hexutil.Uint64            `json:"slot"`
-	ProposerIndex hexutil.Uint64            `json:"proposerIndex"`
-	ParentRoot    Root                      `json:"parentRoot" ssz-size:"32"`
-	StateRoot     Root                      `json:"stateRoot" ssz-size:"32"`
-	Body          *BlindedBeaconBlockBodyV1 `json:"body"`
+type BlindedBeaconBlock struct {
+	Slot          hexutil.Uint64          `json:"slot"`
+	ProposerIndex hexutil.Uint64          `json:"proposerIndex"`
+	ParentRoot    Root                    `json:"parentRoot" ssz-size:"32"`
+	StateRoot     Root                    `json:"stateRoot" ssz-size:"32"`
+	Body          *BlindedBeaconBlockBody `json:"body"`
 }
 
 type RegisterValidatorRequestMessage struct {
@@ -127,27 +127,27 @@ type RegisterValidatorRequestMessage struct {
 }
 
 type RegisterValidatorRequest struct {
-	Message   RegisterValidatorRequestMessage `json:"message"`
-	Signature hexutil.Bytes                   `json:"signature"`
+	Message   *RegisterValidatorRequestMessage `json:"message"`
+	Signature hexutil.Bytes                    `json:"signature"`
 }
 
-type BuilderBidV1 struct {
-	Header *ExecutionPayloadHeaderV1 `json:"header"`
-	Value  U256                      `json:"value" ssz-size:"32"`
-	Pubkey PublicKey                 `json:"pubkey" ssz-size:"48"`
+type BuilderBid struct {
+	Header *ExecutionPayloadHeader `json:"header"`
+	Value  U256                    `json:"value" ssz-size:"32"`
+	Pubkey PublicKey               `json:"pubkey" ssz-size:"48"`
 }
 
-type SignedBuilderBidV1 struct {
-	Message   *BuilderBidV1 `json:"message"`
-	Signature Signature     `json:"signature"`
+type SignedBuilderBid struct {
+	Message   *BuilderBid `json:"message"`
+	Signature Signature   `json:"signature"`
 }
 
-func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, error) {
+func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, error) {
 	txs, err := decodeTransactions(p.Transactions)
 	if err != nil {
 		return nil, err
 	}
-	return &ExecutionPayloadHeaderV1{
+	return &ExecutionPayloadHeader{
 		ParentHash:       [32]byte(p.ParentHash),
 		FeeRecipient:     [20]byte(p.FeeRecipient),
 		StateRoot:        [32]byte(p.StateRoot),

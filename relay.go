@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"mergemock/rpc"
 	"mergemock/types"
 	"net/http"
@@ -240,10 +239,10 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 	var sig types.Signature
 	tmp := r.sk.Sign(msg[:])
 	copy(sig[:], tmp.Marshal())
-	response := &types.SignedBuilderBid{Message: &bid, Signature: sig}
-
-	rs, err := json.Marshal(response)
-	fmt.Println("-------resp:", string(rs))
+	response := &types.GetHeaderResponse{
+		Version: "bellatrix",
+		Data:    &types.SignedBuilderBid{Message: &bid, Signature: sig},
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

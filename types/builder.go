@@ -8,7 +8,6 @@ import (
 )
 
 // Generate SSZ encoding: make generate-ssz
-// note: currently needing to first change type U256 to Hash before running as there is bug in sszgen preventing it to locate U256
 
 type Eth1Data struct {
 	DepositRoot  Root           `json:"depositRoot" ssz-size:"32"`
@@ -82,20 +81,20 @@ type SyncAggregate struct {
 }
 
 type ExecutionPayloadHeader struct {
-	ParentHash       Hash           `json:"parent_hash" ssz-size:"32"`
-	FeeRecipient     Address        `json:"fee_recipient" ssz-size:"20"`
-	StateRoot        Root           `json:"state_root" ssz-size:"32"`
-	ReceiptsRoot     Root           `json:"receipts_root" ssz-size:"32"`
-	LogsBloom        Bloom          `json:"logs_bloom" ssz-size:"256"`
-	Random           Hash           `json:"prev_randao" ssz-size:"32"`
-	Number           hexutil.Uint64 `json:"block_number"`
-	GasLimit         hexutil.Uint64 `json:"gas_limit"`
-	GasUsed          hexutil.Uint64 `json:"gas_used"`
-	Timestamp        hexutil.Uint64 `json:"timestamp"`
-	ExtraData        Hash           `json:"extra_data" ssz-size:"32"`
-	BaseFeePerGas    U256           `json:"base_fee_per_gas" ssz-max:"32"`
-	BlockHash        Hash           `json:"block_hash" ssz-size:"32"`
-	TransactionsRoot Root           `json:"transactions_root" ssz-size:"32"`
+	ParentHash       Hash    `json:"parent_hash" ssz-size:"32"`
+	FeeRecipient     Address `json:"fee_recipient" ssz-size:"20"`
+	StateRoot        Root    `json:"state_root" ssz-size:"32"`
+	ReceiptsRoot     Root    `json:"receipts_root" ssz-size:"32"`
+	LogsBloom        Bloom   `json:"logs_bloom" ssz-size:"256"`
+	Random           Hash    `json:"prev_randao" ssz-size:"32"`
+	Number           uint64  `json:"block_number,string"`
+	GasLimit         uint64  `json:"gas_limit,string"`
+	GasUsed          uint64  `json:"gas_used,string"`
+	Timestamp        uint64  `json:"timestamp,string"`
+	ExtraData        Hash    `json:"extra_data" ssz-size:"32"`
+	BaseFeePerGas    U256Str `json:"base_fee_per_gas" ssz-max:"32"`
+	BlockHash        Hash    `json:"block_hash" ssz-size:"32"`
+	TransactionsRoot Root    `json:"transactions_root" ssz-size:"32"`
 }
 
 type BlindedBeaconBlockBody struct {
@@ -133,13 +132,18 @@ type RegisterValidatorRequest struct {
 
 type BuilderBid struct {
 	Header *ExecutionPayloadHeader `json:"header"`
-	Value  U256                    `json:"value" ssz-size:"32"`
+	Value  U256Str                 `json:"value" ssz-size:"32"`
 	Pubkey PublicKey               `json:"pubkey" ssz-size:"48"`
 }
 
 type SignedBuilderBid struct {
 	Message   *BuilderBid `json:"message"`
 	Signature Signature   `json:"signature"`
+}
+
+type GetHeaderResponse struct {
+	Version string            `json:"version"`
+	Data    *SignedBuilderBid `json:"data"`
 }
 
 func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, error) {
@@ -154,10 +158,10 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, err
 		ReceiptsRoot:     [32]byte(p.ReceiptsRoot),
 		LogsBloom:        [256]byte(p.LogsBloom),
 		Random:           [32]byte(p.Random),
-		Number:           hexutil.Uint64(p.Number),
-		GasLimit:         hexutil.Uint64(p.GasLimit),
-		GasUsed:          hexutil.Uint64(p.GasUsed),
-		Timestamp:        hexutil.Uint64(p.Timestamp),
+		Number:           p.Number,
+		GasLimit:         p.GasLimit,
+		GasUsed:          p.GasUsed,
+		Timestamp:        p.Timestamp,
 		ExtraData:        [32]byte(common.BytesToHash(p.ExtraData)),
 		BaseFeePerGas:    [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
 		BlockHash:        [32]byte(p.BlockHash),

@@ -10,17 +10,17 @@ import (
 // Generate SSZ encoding: make generate-ssz
 
 type Eth1Data struct {
-	DepositRoot  Root           `json:"depositRoot" ssz-size:"32"`
-	DepositCount hexutil.Uint64 `json:"depositCount"`
-	BlockHash    Hash           `json:"blockHash" ssz-size:"32"`
+	DepositRoot  Root           `json:"deposit_root" ssz-size:"32"`
+	DepositCount hexutil.Uint64 `json:"deposit_count"`
+	BlockHash    Hash           `json:"block_hash" ssz-size:"32"`
 }
 
 type BeaconBlockHeader struct {
 	Slot          hexutil.Uint64 `json:"slot"`
-	ProposerIndex hexutil.Uint64 `json:"proposerIndex"`
-	ParentRoot    Root           `json:"parentRoot" ssz-size:"32"`
-	StateRoot     Root           `json:"stateRoot" ssz-size:"32"`
-	BodyRoot      Root           `json:"bodyRoot" ssz-size:"32"`
+	ProposerIndex hexutil.Uint64 `json:"proposer_index"`
+	ParentRoot    Root           `json:"parent_root" ssz-size:"32"`
+	StateRoot     Root           `json:"state_root" ssz-size:"32"`
+	BodyRoot      Root           `json:"body_root" ssz-size:"32"`
 }
 
 type SignedBeaconBlockHeader struct {
@@ -29,8 +29,8 @@ type SignedBeaconBlockHeader struct {
 }
 
 type ProposerSlashing struct {
-	A *SignedBeaconBlockHeader `json:"signedHeader1"`
-	B *SignedBeaconBlockHeader `json:"signedHeader2"`
+	A *SignedBeaconBlockHeader `json:"signed_header_1"`
+	B *SignedBeaconBlockHeader `json:"signed_header_2"`
 }
 
 type Checkpoint struct {
@@ -40,44 +40,44 @@ type Checkpoint struct {
 
 type AttestationData struct {
 	Slot      hexutil.Uint64 `json:"slot"`
-	Index     hexutil.Uint64 `json:"Index"`
-	BlockRoot Root           `json:"beaconBlockRoot" ssz-size:"32"`
+	Index     hexutil.Uint64 `json:"index"`
+	BlockRoot Root           `json:"beacon_block_root" ssz-size:"32"`
 	Source    *Checkpoint    `json:"source"`
 	Target    *Checkpoint    `json:"target"`
 }
 
 type IndexedAttestation struct {
-	AttestingIndices []uint64         `json:"attestingIndices" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
+	AttestingIndices []uint64         `json:"attesting_indices" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
 	Data             *AttestationData `json:"data"`
 	Signature        Signature        `json:"signature" ssz-size:"96"`
 }
 
 type AttesterSlashing struct {
-	A *IndexedAttestation `json:"attestation1"`
-	B *IndexedAttestation `json:"attestation2"`
+	A *IndexedAttestation `json:"attestation_1"`
+	B *IndexedAttestation `json:"attestation_2"`
 }
 
 type Attestation struct {
-	AggregationBits hexutil.Bytes    `json:"aggregationBits" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
+	AggregationBits hexutil.Bytes    `json:"aggregation_bits" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
 	Data            *AttestationData `json:"data"`
 	Signature       Signature        `json:"signature" ssz-size:"96"`
 }
 
 type Deposit struct {
 	Pubkey                PublicKey      `json:"pubkey" ssz-size:"48"`
-	WithdrawalCredentials Hash           `json:"withdrawalCredentials" ssz-size:"32"`
+	WithdrawalCredentials Hash           `json:"withdrawal_credentials" ssz-size:"32"`
 	Amount                hexutil.Uint64 `json:"amount"`
 	Signature             Signature      `json:"signature" ssz-size:"96"`
 }
 
 type VoluntaryExits struct {
 	Epoch          hexutil.Uint64 `json:"epoch"`
-	ValidatorIndex hexutil.Uint64 `json:"validatorIndex"`
+	ValidatorIndex hexutil.Uint64 `json:"validator_index"`
 }
 
 type SyncAggregate struct {
-	CommitteeBits      CommitteeBits `json:"syncCommitteeBits" ssz-size:"64"`
-	CommitteeSignature Signature     `json:"syncCommitteeSignature" ssz-size:"96"`
+	CommitteeBits      CommitteeBits `json:"sync_committee_bits" ssz-size:"64"`
+	CommitteeSignature Signature     `json:"sync_committee_signature" ssz-size:"96"`
 }
 
 type ExecutionPayloadHeader struct {
@@ -98,23 +98,23 @@ type ExecutionPayloadHeader struct {
 }
 
 type BlindedBeaconBlockBody struct {
-	RandaoReveal           Signature               `json:"randaoReveal" ssz-size:"96"`
-	Eth1Data               *Eth1Data               `json:"eth1Data"`
+	RandaoReveal           Signature               `json:"randao_reveal" ssz-size:"96"`
+	Eth1Data               *Eth1Data               `json:"eth1_data"`
 	Graffiti               Hash                    `json:"graffiti" ssz-size:"32"`
-	ProposerSlashings      []*ProposerSlashing     `json:"proposerSlashings" ssz-max:"16"`
-	AttesterSlashings      []*AttesterSlashing     `json:"attesterSlashings" ssz-max:"2"`
+	ProposerSlashings      []*ProposerSlashing     `json:"proposer_slashings" ssz-max:"16"`
+	AttesterSlashings      []*AttesterSlashing     `json:"attester_slashings" ssz-max:"2"`
 	Attestations           []*Attestation          `json:"attestations" ssz-max:"128"`
 	Deposits               []*Deposit              `json:"deposits" ssz-max:"4"`
-	VoluntaryExits         []*VoluntaryExits       `json:"voluntaryExits" ssz-max:"16"`
-	SyncAggregate          *SyncAggregate          `json:"syncAggregate"`
-	ExecutionPayloadHeader *ExecutionPayloadHeader `json:"executionPayloadHeader"`
+	VoluntaryExits         []*VoluntaryExits       `json:"voluntary_exits" ssz-max:"16"`
+	SyncAggregate          *SyncAggregate          `json:"sync_aggregate"`
+	ExecutionPayloadHeader *ExecutionPayloadHeader `json:"execution_payload_header"`
 }
 
 type BlindedBeaconBlock struct {
 	Slot          hexutil.Uint64          `json:"slot"`
-	ProposerIndex hexutil.Uint64          `json:"proposerIndex"`
-	ParentRoot    Root                    `json:"parentRoot" ssz-size:"32"`
-	StateRoot     Root                    `json:"stateRoot" ssz-size:"32"`
+	ProposerIndex hexutil.Uint64          `json:"proposer_index"`
+	ParentRoot    Root                    `json:"parent_root" ssz-size:"32"`
+	StateRoot     Root                    `json:"state_root" ssz-size:"32"`
 	Body          *BlindedBeaconBlockBody `json:"body"`
 }
 

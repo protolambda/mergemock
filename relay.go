@@ -181,7 +181,7 @@ func (r *RelayBackend) handleStatus(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
-	payload := new(types.RegisterValidatorRequest)
+	payload := new(types.SignedValidatorRegistration)
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

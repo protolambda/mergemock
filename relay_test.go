@@ -115,7 +115,7 @@ func TestValidatorRegistration(t *testing.T) {
 	signature.FromSlice(sig)
 	require.Equal(t, sig[:], signature[:])
 
-	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
+	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.SignedValidatorRegistration{
 		Message:   &msg,
 		Signature: signature,
 	})
@@ -123,7 +123,7 @@ func TestValidatorRegistration(t *testing.T) {
 
 	// Invalid signature
 	signature[len(signature)-1] = 0x00
-	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
+	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.SignedValidatorRegistration{
 		Message:   &msg,
 		Signature: signature,
 	})

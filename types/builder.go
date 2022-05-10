@@ -97,6 +97,23 @@ type ExecutionPayloadHeader struct {
 	TransactionsRoot Root    `json:"transactions_root" ssz-size:"32"`
 }
 
+type ExecutionPayloadREST struct {
+	ParentHash    Hash            `json:"parent_hash" ssz-size:"32"`
+	FeeRecipient  Address         `json:"fee_recipient" ssz-size:"20"`
+	StateRoot     Root            `json:"state_root" ssz-size:"32"`
+	ReceiptsRoot  Root            `json:"receipts_root" ssz-size:"32"`
+	LogsBloom     Bloom           `json:"logs_bloom" ssz-size:"256"`
+	Random        Hash            `json:"prev_randao" ssz-size:"32"`
+	BlockNumber   uint64          `json:"block_number,string"`
+	GasLimit      uint64          `json:"gas_limit,string"`
+	GasUsed       uint64          `json:"gas_used,string"`
+	Timestamp     uint64          `json:"timestamp,string"`
+	ExtraData     Hash            `json:"extra_data" ssz-size:"32"`
+	BaseFeePerGas U256Str         `json:"base_fee_per_gas" ssz-max:"32"`
+	BlockHash     Hash            `json:"block_hash" ssz-size:"32"`
+	Transactions  []hexutil.Bytes `json:"transactions"` // ssz-size/ssz-max:"2048"?
+}
+
 type BlindedBeaconBlockBody struct {
 	RandaoReveal           Signature               `json:"randao_reveal" ssz-size:"96"`
 	Eth1Data               *Eth1Data               `json:"eth1_data"`
@@ -146,9 +163,14 @@ type GetHeaderResponse struct {
 	Data    *SignedBuilderBid `json:"data"`
 }
 
-type GetPayloadRequest struct {
+type SignedBlindedBeaconBlock struct {
 	Message   *BlindedBeaconBlock `json:"message"`
 	Signature Signature           `json:"signature"`
+}
+
+type GetPayloadResponse struct {
+	Version string                `json:"version"`
+	Data    *ExecutionPayloadREST `json:"data"`
 }
 
 func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, error) {
@@ -171,5 +193,29 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, err
 		BaseFeePerGas:    [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
 		BlockHash:        [32]byte(p.BlockHash),
 		TransactionsRoot: [32]byte(types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))),
+	}, nil
+}
+
+func PayloadToRESTPayload(p *ExecutionPayloadV1) (*ExecutionPayloadREST, error) {
+	txs := make([]hexutil.Bytes, len(p.Transactions))
+	for i, tx := range p.Transactions {
+		txs[i] = hexutil.Bytes(tx)
+	}
+
+	return &ExecutionPayloadREST{
+		ParentHash:    [32]byte(p.ParentHash),
+		FeeRecipient:  [20]byte(p.FeeRecipient),
+		StateRoot:     [32]byte(p.StateRoot),
+		ReceiptsRoot:  [32]byte(p.ReceiptsRoot),
+		LogsBloom:     [256]byte(p.LogsBloom),
+		Random:        [32]byte(p.Random),
+		BlockNumber:   p.Number,
+		GasLimit:      p.GasLimit,
+		GasUsed:       p.GasUsed,
+		Timestamp:     p.Timestamp,
+		ExtraData:     [32]byte(common.BytesToHash(p.ExtraData)),
+		BaseFeePerGas: [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
+		BlockHash:     [32]byte(p.BlockHash),
+		Transactions:  txs,
 	}, nil
 }

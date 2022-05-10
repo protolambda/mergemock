@@ -54,7 +54,6 @@ type ConsensusCmd struct {
 	log       logrus.Ext1FieldLogger
 	ctx       context.Context
 	engine    *rpc.Client
-	builder   *rpc.Client
 	jwtSecret []byte
 	db        ethdb.Database
 
@@ -99,15 +98,6 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	client, err := rpc.DialContext(ctx, c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err
-	}
-
-	// Connect to builder api (if required)
-	if c.BuilderAddr != "" {
-		builder, err := rpc.DialContext(ctx, c.BuilderAddr, nil)
-		if err != nil {
-			return err
-		}
-		c.builder = builder
 	}
 
 	c.ethashCfg = ethash.Config{
@@ -394,12 +384,12 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, at
 
 func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId types.PayloadID) (*types.ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
-	if c.builder != nil {
-		header, err := api.BuilderGetHeader(c.ctx, c.builder, log, c.mockChain.CurrentHeader().Hash())
+	if c.BuilderAddr != "" {
+		header, err := api.BuilderGetHeader(c.ctx, log, c.BuilderAddr, c.mockChain.CurrentHeader().Hash())
 		if err != nil {
 			return nil, err
 		}
-		payload, err := api.BuilderGetPayload(ctx, c.builder, log, header)
+		payload, err := api.BuilderGetPayload(ctx, log, c.BuilderAddr, header)
 		if err != nil {
 			return nil, err
 		}

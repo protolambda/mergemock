@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mergemock/rpc"
 	"mergemock/types"
 	"net/http"
@@ -204,7 +205,6 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 	}
 
 	// TODO: update mapping?
-
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -234,7 +234,15 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	r.recentPayloads.Add(payloadHeader.BlockHash, payload)
+	payloadREST, err := types.PayloadToRESTPayload(payload.(*types.ExecutionPayloadV1))
+	if err != nil {
+		plog.Warn("Cannot convert payload to payloadREST")
+		http.Error(w, "cannot convert payload to payloadREST", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Println("getHeader set", payloadHeader.BlockHash)
+	r.recentPayloads.Add(payloadHeader.BlockHash, payloadREST)
 	plog.Info("Consensus client retrieved prepared payload header")
 
 	bid := types.BuilderBid{
@@ -263,17 +271,17 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request) {
 	// plog := r.log.WithField("method", "getPayload")
 
-	payload := new(types.GetPayloadRequest)
+	payload := new(types.SignedBlindedBeaconBlock)
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -291,6 +299,32 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 		return
 	}
 
+	fmt.Println("getPayload get", payload.Message.Body.ExecutionPayloadHeader.BlockHash)
+	_execPayload, ok := r.recentPayloads.Get(payload.Message.Body.ExecutionPayloadHeader.BlockHash)
+	if !ok {
+		r.log.Warn("Cannot get unknown payload")
+		http.Error(w, "cannot get unknown payload", http.StatusBadRequest)
+		return
+	}
+
+	r.log.Info("Consensus client retrieved prepared payload header")
+	execPayload, ok := _execPayload.(*types.ExecutionPayloadREST)
+	if !ok {
+		r.log.Warn("Cannot read to payloadREST")
+		http.Error(w, "cannot read to payloadREST", http.StatusBadRequest)
+	}
+
+	response := types.GetPayloadResponse{
+		Version: "bellatrix",
+		Data:    execPayload,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, parentHash common.Hash) (*types.SignedBuilderBidV1, error) {

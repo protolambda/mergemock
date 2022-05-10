@@ -139,7 +139,8 @@ func TestGetHeader(t *testing.T) {
 	parent := relay.engine.mockChain().CurrentHeader()
 	parentHash := parent.Hash()
 
-	if _, err := relay.engine.backend.ForkchoiceUpdatedV1(
+	// Initialize engine
+	_, err := relay.engine.backend.ForkchoiceUpdatedV1(
 		ctx,
 		&types.ForkchoiceStateV1{
 			HeadBlockHash:      parentHash,
@@ -151,17 +152,15 @@ func TestGetHeader(t *testing.T) {
 			PrevRandao:            common.Hash{0x01},
 			SuggestedFeeRecipient: common.Address{0x02},
 		},
-	); err != nil {
-		t.Fatal("unable to initialize engine")
-	}
+	)
+	require.NoError(t, err, "unable to initialize engine")
 
 	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk[:])
-	fmt.Println("path", path)
 	rr := relay.testRequest(t, "GET", path, nil)
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	bid := new(types.GetHeaderResponse)
-	err := json.Unmarshal(rr.Body.Bytes(), bid)
+	err = json.Unmarshal(rr.Body.Bytes(), bid)
 	require.NoError(t, err)
 
 	require.Equal(t, parentHash[:], bid.Data.Message.Header.ParentHash[:], "didn't build on expected parent")
@@ -180,11 +179,31 @@ func TestGetPayload(t *testing.T) {
 	parent := relay.engine.mockChain().CurrentHeader()
 	parentHash := parent.Hash()
 
-	blockHash := types.Hash{0xa1}
-	feeRecipient := types.Address{0xb1}
+	// Initialize engine
+	_, err := relay.engine.backend.ForkchoiceUpdatedV1(
+		ctx,
+		&types.ForkchoiceStateV1{
+			HeadBlockHash:      parentHash,
+			SafeBlockHash:      parentHash,
+			FinalizedBlockHash: parentHash,
+		},
+		&types.PayloadAttributesV1{
+			Timestamp:             parent.Time + 1,
+			PrevRandao:            common.Hash{0x01},
+			SuggestedFeeRecipient: common.Address{0x02},
+		},
+	)
+	require.NoError(t, err, "unable to initialize engine")
 
-	// Set relay pubkey for signature validation
-	relay.latestPubkey.FromSlice(pk)
+	// Call getHeader to prepare payload
+	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk[:])
+	rr := relay.testRequest(t, "GET", path, nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+	bid := new(types.GetHeaderResponse)
+	err = json.Unmarshal(rr.Body.Bytes(), bid)
+	require.NoError(t, err)
+
+	// Create request payload
 	msg := &types.BlindedBeaconBlock{
 		Slot:          1,
 		ProposerIndex: 2,
@@ -196,46 +215,39 @@ func TestGetPayload(t *testing.T) {
 				DepositCount: 5,
 				BlockHash:    types.Hash{0x06},
 			},
-			ProposerSlashings: []*types.ProposerSlashing{},
-			AttesterSlashings: []*types.AttesterSlashing{},
-			Attestations:      []*types.Attestation{},
-			Deposits:          []*types.Deposit{},
-			VoluntaryExits:    []*types.VoluntaryExit{},
 			SyncAggregate: &types.SyncAggregate{
 				CommitteeBits:      types.CommitteeBits{0x07},
 				CommitteeSignature: types.Signature{0x08},
 			},
-			ExecutionPayloadHeader: &types.ExecutionPayloadHeader{
-				ParentHash:       types.Hash(parentHash),
-				FeeRecipient:     feeRecipient,
-				StateRoot:        types.Root{0x09},
-				ReceiptsRoot:     types.Root{0x0a},
-				LogsBloom:        types.Bloom{0x0b},
-				Random:           types.Hash{0x0c},
-				BlockNumber:      5001,
-				GasLimit:         5002,
-				GasUsed:          5003,
-				Timestamp:        5004,
-				ExtraData:        types.Hash{0x0d},
-				BaseFeePerGas:    types.IntToU256(123456789),
-				BlockHash:        blockHash,
-				TransactionsRoot: types.Root{0x0e},
-			},
+			ExecutionPayloadHeader: bid.Data.Message.Header,
 		},
 	}
 
-	// Success
+	// Sign payload
 	root, err := msg.HashTreeRoot()
 	require.NoError(t, err)
 	sig := sk.Sign(root[:]).Marshal()
-
 	var signature types.Signature
 	signature.FromSlice(sig)
 	require.Equal(t, sig[:], signature[:])
 
-	rr := relay.testRequest(t, "POST", "/eth/v1/builder/blinded_blocks", types.GetPayloadRequest{
+	// Call getPayload with invalid signature
+	rr = relay.testRequest(t, "POST", "/eth/v1/builder/blinded_blocks", types.SignedBlindedBeaconBlock{
+		Message:   msg,
+		Signature: types.Signature{0x09},
+	})
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+
+	// Call getPayload with correct signature
+	rr = relay.testRequest(t, "POST", "/eth/v1/builder/blinded_blocks", types.SignedBlindedBeaconBlock{
 		Message:   msg,
 		Signature: signature,
 	})
+
+	// Verify getPayload response
 	require.Equal(t, http.StatusOK, rr.Code)
+	getPayloadResponse := new(types.GetPayloadResponse)
+	err = json.Unmarshal(rr.Body.Bytes(), getPayloadResponse)
+	require.NoError(t, err)
+	require.Equal(t, bid.Data.Message.Header.BlockHash, getPayloadResponse.Data.BlockHash)
 }

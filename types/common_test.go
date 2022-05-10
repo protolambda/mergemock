@@ -29,31 +29,6 @@ func TestJSONSerialization(t *testing.T) {
 	require.Equal(t, a, a2)
 }
 
-// func TestU256Hex(t *testing.T) {
-// 	a := U256Hex{}
-// 	a[31] = 0x01
-// 	require.Equal(t, "0x1", a.String())
-
-// 	b, err := json.Marshal(a)
-// 	require.NoError(t, err)
-
-// 	expectedStr := `0x1`
-// 	expectedJSON := fmt.Sprintf(`"%s"`, expectedStr)
-// 	require.JSONEq(t, expectedJSON, string(b))
-
-// 	// UnmarshalText
-// 	a2 := U256Hex{}
-// 	err = a2.UnmarshalText([]byte(expectedStr))
-// 	require.NoError(t, err)
-// 	require.Equal(t, a, a2)
-
-// 	// UnmarshalJSON
-// 	a3 := U256Hex{}
-// 	err = a3.UnmarshalJSON([]byte(expectedJSON))
-// 	require.NoError(t, err)
-// 	require.Equal(t, a, a3)
-// }
-
 func TestU256Str(t *testing.T) {
 	a := U256Str{}
 	a[31] = 0x01

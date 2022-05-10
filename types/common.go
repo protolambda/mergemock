@@ -14,9 +14,7 @@ type Hash [32]byte
 type Root Hash
 type CommitteeBits [64]byte
 type Bloom [256]byte
-
-// type U256Hex [32]byte // hex en/decoding
-type U256Str Hash // string en/decoding
+type U256Str Hash // encodes/decodes to string, not hex
 
 var (
 	ErrLength = fmt.Errorf("incorrect byte length")
@@ -256,42 +254,6 @@ func (b Bloom) String() string {
 func (b *Bloom) FromSlice(x []byte) {
 	copy(b[:], x)
 }
-
-// func (n U256Hex) MarshalText() ([]byte, error) {
-// 	x := new(big.Int).SetBytes(n[:])
-// 	return (*hexutil.Big)(x).MarshalText()
-// }
-
-// func (n *U256Hex) UnmarshalJSON(input []byte) error {
-// 	x := new(big.Int)
-// 	err := (*hexutil.Big)(x).UnmarshalJSON(input)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	copy(n[:], x.FillBytes(n[:]))
-// 	// copy(n[:], x.Bytes())
-// 	return nil
-// }
-
-// func (n *U256Hex) UnmarshalText(input []byte) error {
-// 	x := new(big.Int)
-// 	err := (*hexutil.Big)(x).UnmarshalText(input)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	copy(n[:], x.FillBytes(n[:]))
-// 	// copy(n[:], x.Bytes())
-// 	return nil
-
-// }
-
-// func (n *U256Hex) String() string {
-// 	return (*hexutil.Big)(new(big.Int).SetBytes(n[:])).String()
-// }
-
-// func (n *U256Hex) FromSlice(x []byte) {
-// 	copy(n[:], x)
-// }
 
 func (n U256Str) MarshalText() ([]byte, error) {
 	return []byte(new(big.Int).SetBytes(n[:]).String()), nil

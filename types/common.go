@@ -328,3 +328,9 @@ func (n *U256Str) String() string {
 func (n *U256Str) FromSlice(x []byte) {
 	copy(n[:], x)
 }
+
+func IntToU256(i uint64) (ret U256Str) {
+	s := fmt.Sprint(i)
+	ret.UnmarshalText([]byte(s))
+	return
+}

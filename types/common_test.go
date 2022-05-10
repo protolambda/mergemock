@@ -77,4 +77,8 @@ func TestU256Str(t *testing.T) {
 	err = a3.UnmarshalJSON([]byte(expectedJSON))
 	require.NoError(t, err)
 	require.Equal(t, a, a3)
+
+	// IntToU256
+	u := IntToU256(123)
+	require.Equal(t, "123", u.String())
 }

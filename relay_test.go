@@ -95,29 +95,37 @@ func TestStatusEndpoint(t *testing.T) {
 func TestValidatorRegistration(t *testing.T) {
 	relay := newTestRelay(t)
 	pk, sk := newKeypair(t)
+
+	var pubkey types.PublicKey
+	pubkey.FromSlice(pk)
+	require.Equal(t, pk[:], pubkey[:])
+
 	msg := types.RegisterValidatorRequestMessage{
-		FeeRecipient: []byte{0x42},
+		FeeRecipient: types.Address{0x42},
 		GasLimit:     15_000_000,
 		Timestamp:    uint64(time.Now().Unix()),
-		Pubkey:       pk,
+		Pubkey:       pubkey,
 	}
 	root, err := msg.HashTreeRoot()
 	require.NoError(t, err)
 
 	// Success
 	sig := sk.Sign(root[:]).Marshal()
+	var signature types.Signature
+	signature.FromSlice(sig)
+	require.Equal(t, sig[:], signature[:])
+
 	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
 		Message:   &msg,
-		Signature: sig,
+		Signature: signature,
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	// Invalid signature
-	sigInvalid := sig
-	sigInvalid[len(sig)-1] = 0x00
+	signature[len(signature)-1] = 0x00
 	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.RegisterValidatorRequest{
 		Message:   &msg,
-		Signature: sigInvalid,
+		Signature: signature,
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Equal(t, errInvalidSignature.Error()+"\n", rr.Body.String())
@@ -160,4 +168,74 @@ func TestGetHeader(t *testing.T) {
 	ok, err := verifySignature(bid.Data.Message, relay.pk[:], bid.Data.Signature[:])
 	require.NoError(t, err, "error verifying signature")
 	require.True(t, ok, "bid signature not valid")
+
+	require.Equal(t, pk, relay.latestPubkey[:])
+}
+
+func TestGetPayload(t *testing.T) {
+	ctx := context.Background()
+	relay := newTestRelay(t)
+	relay.engine.Run(ctx)
+	pk, sk := newKeypair(t)
+	parent := relay.engine.mockChain().CurrentHeader()
+	parentHash := parent.Hash()
+
+	blockHash := types.Hash{0xa1}
+	feeRecipient := types.Address{0xb1}
+
+	// Set relay pubkey for signature validation
+	relay.latestPubkey.FromSlice(pk)
+	msg := &types.BlindedBeaconBlock{
+		Slot:          1,
+		ProposerIndex: 2,
+		ParentRoot:    types.Root{0x03},
+		StateRoot:     types.Root{0x04},
+		Body: &types.BlindedBeaconBlockBody{
+			Eth1Data: &types.Eth1Data{
+				DepositRoot:  types.Root{0x05},
+				DepositCount: 5,
+				BlockHash:    types.Hash{0x06},
+			},
+			ProposerSlashings: []*types.ProposerSlashing{},
+			AttesterSlashings: []*types.AttesterSlashing{},
+			Attestations:      []*types.Attestation{},
+			Deposits:          []*types.Deposit{},
+			VoluntaryExits:    []*types.VoluntaryExit{},
+			SyncAggregate: &types.SyncAggregate{
+				CommitteeBits:      types.CommitteeBits{0x07},
+				CommitteeSignature: types.Signature{0x08},
+			},
+			ExecutionPayloadHeader: &types.ExecutionPayloadHeader{
+				ParentHash:       types.Hash(parentHash),
+				FeeRecipient:     feeRecipient,
+				StateRoot:        types.Root{0x09},
+				ReceiptsRoot:     types.Root{0x0a},
+				LogsBloom:        types.Bloom{0x0b},
+				Random:           types.Hash{0x0c},
+				BlockNumber:      5001,
+				GasLimit:         5002,
+				GasUsed:          5003,
+				Timestamp:        5004,
+				ExtraData:        types.Hash{0x0d},
+				BaseFeePerGas:    types.IntToU256(123456789),
+				BlockHash:        blockHash,
+				TransactionsRoot: types.Root{0x0e},
+			},
+		},
+	}
+
+	// Success
+	root, err := msg.HashTreeRoot()
+	require.NoError(t, err)
+	sig := sk.Sign(root[:]).Marshal()
+
+	var signature types.Signature
+	signature.FromSlice(sig)
+	require.Equal(t, sig[:], signature[:])
+
+	rr := relay.testRequest(t, "POST", "/eth/v1/builder/blinded_blocks", types.GetPayloadRequest{
+		Message:   msg,
+		Signature: signature,
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
 }

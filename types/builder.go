@@ -10,17 +10,17 @@ import (
 // Generate SSZ encoding: make generate-ssz
 
 type Eth1Data struct {
-	DepositRoot  Root           `json:"deposit_root" ssz-size:"32"`
-	DepositCount hexutil.Uint64 `json:"deposit_count"`
-	BlockHash    Hash           `json:"block_hash" ssz-size:"32"`
+	DepositRoot  Root   `json:"deposit_root" ssz-size:"32"`
+	DepositCount uint64 `json:"deposit_count,string"`
+	BlockHash    Hash   `json:"block_hash" ssz-size:"32"`
 }
 
 type BeaconBlockHeader struct {
-	Slot          hexutil.Uint64 `json:"slot"`
-	ProposerIndex hexutil.Uint64 `json:"proposer_index"`
-	ParentRoot    Root           `json:"parent_root" ssz-size:"32"`
-	StateRoot     Root           `json:"state_root" ssz-size:"32"`
-	BodyRoot      Root           `json:"body_root" ssz-size:"32"`
+	Slot          uint64 `json:"slot,string"`
+	ProposerIndex uint64 `json:"proposer_index,string"`
+	ParentRoot    Root   `json:"parent_root" ssz-size:"32"`
+	StateRoot     Root   `json:"state_root" ssz-size:"32"`
+	BodyRoot      Root   `json:"body_root" ssz-size:"32"`
 }
 
 type SignedBeaconBlockHeader struct {
@@ -34,16 +34,16 @@ type ProposerSlashing struct {
 }
 
 type Checkpoint struct {
-	Epoch hexutil.Uint64 `json:"epoch"`
-	Root  Root           `json:"root" ssz-size:"32"`
+	Epoch uint64 `json:"epoch,string"`
+	Root  Root   `json:"root" ssz-size:"32"`
 }
 
 type AttestationData struct {
-	Slot      hexutil.Uint64 `json:"slot"`
-	Index     hexutil.Uint64 `json:"index"`
-	BlockRoot Root           `json:"beacon_block_root" ssz-size:"32"`
-	Source    *Checkpoint    `json:"source"`
-	Target    *Checkpoint    `json:"target"`
+	Slot      uint64      `json:"slot,string"`
+	Index     uint64      `json:"index,string"`
+	BlockRoot Root        `json:"beacon_block_root" ssz-size:"32"`
+	Source    *Checkpoint `json:"source"`
+	Target    *Checkpoint `json:"target"`
 }
 
 type IndexedAttestation struct {
@@ -64,15 +64,15 @@ type Attestation struct {
 }
 
 type Deposit struct {
-	Pubkey                PublicKey      `json:"pubkey" ssz-size:"48"`
-	WithdrawalCredentials Hash           `json:"withdrawal_credentials" ssz-size:"32"`
-	Amount                hexutil.Uint64 `json:"amount"`
-	Signature             Signature      `json:"signature" ssz-size:"96"`
+	Pubkey                PublicKey `json:"pubkey" ssz-size:"48"`
+	WithdrawalCredentials Hash      `json:"withdrawal_credentials" ssz-size:"32"`
+	Amount                uint64    `json:"amount,string"`
+	Signature             Signature `json:"signature" ssz-size:"96"`
 }
 
-type VoluntaryExits struct {
-	Epoch          hexutil.Uint64 `json:"epoch"`
-	ValidatorIndex hexutil.Uint64 `json:"validator_index"`
+type VoluntaryExit struct {
+	Epoch          uint64 `json:"epoch,string"`
+	ValidatorIndex uint64 `json:"validator_index,string"`
 }
 
 type SyncAggregate struct {
@@ -87,7 +87,7 @@ type ExecutionPayloadHeader struct {
 	ReceiptsRoot     Root    `json:"receipts_root" ssz-size:"32"`
 	LogsBloom        Bloom   `json:"logs_bloom" ssz-size:"256"`
 	Random           Hash    `json:"prev_randao" ssz-size:"32"`
-	Number           uint64  `json:"block_number,string"`
+	BlockNumber      uint64  `json:"block_number,string"`
 	GasLimit         uint64  `json:"gas_limit,string"`
 	GasUsed          uint64  `json:"gas_used,string"`
 	Timestamp        uint64  `json:"timestamp,string"`
@@ -105,29 +105,29 @@ type BlindedBeaconBlockBody struct {
 	AttesterSlashings      []*AttesterSlashing     `json:"attester_slashings" ssz-max:"2"`
 	Attestations           []*Attestation          `json:"attestations" ssz-max:"128"`
 	Deposits               []*Deposit              `json:"deposits" ssz-max:"4"`
-	VoluntaryExits         []*VoluntaryExits       `json:"voluntary_exits" ssz-max:"16"`
+	VoluntaryExits         []*VoluntaryExit        `json:"voluntary_exits" ssz-max:"16"`
 	SyncAggregate          *SyncAggregate          `json:"sync_aggregate"`
 	ExecutionPayloadHeader *ExecutionPayloadHeader `json:"execution_payload_header"`
 }
 
 type BlindedBeaconBlock struct {
-	Slot          hexutil.Uint64          `json:"slot"`
-	ProposerIndex hexutil.Uint64          `json:"proposer_index"`
+	Slot          uint64                  `json:"slot,string"`
+	ProposerIndex uint64                  `json:"proposer_index,string"`
 	ParentRoot    Root                    `json:"parent_root" ssz-size:"32"`
 	StateRoot     Root                    `json:"state_root" ssz-size:"32"`
 	Body          *BlindedBeaconBlockBody `json:"body"`
 }
 
 type RegisterValidatorRequestMessage struct {
-	FeeRecipient hexutil.Bytes `json:"fee_recipient" ssz-size:"20"` // type was Address
-	GasLimit     uint64        `json:"gas_limit,string"`
-	Timestamp    uint64        `json:"timestamp,string"`
-	Pubkey       hexutil.Bytes `json:"pubkey" ssz-size:"48"` // type was PublicKey
+	FeeRecipient Address   `json:"fee_recipient" ssz-size:"20"` // type was Address
+	GasLimit     uint64    `json:"gas_limit,string"`
+	Timestamp    uint64    `json:"timestamp,string"`
+	Pubkey       PublicKey `json:"pubkey" ssz-size:"48"` // type was PublicKey
 }
 
 type RegisterValidatorRequest struct {
 	Message   *RegisterValidatorRequestMessage `json:"message"`
-	Signature hexutil.Bytes                    `json:"signature"`
+	Signature Signature                        `json:"signature"`
 }
 
 type BuilderBid struct {
@@ -146,6 +146,11 @@ type GetHeaderResponse struct {
 	Data    *SignedBuilderBid `json:"data"`
 }
 
+type GetPayloadRequest struct {
+	Message   *BlindedBeaconBlock `json:"message"`
+	Signature Signature           `json:"signature"`
+}
+
 func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, error) {
 	txs, err := decodeTransactions(p.Transactions)
 	if err != nil {
@@ -158,7 +163,7 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, err
 		ReceiptsRoot:     [32]byte(p.ReceiptsRoot),
 		LogsBloom:        [256]byte(p.LogsBloom),
 		Random:           [32]byte(p.Random),
-		Number:           p.Number,
+		BlockNumber:      p.Number,
 		GasLimit:         p.GasLimit,
 		GasUsed:          p.GasUsed,
 		Timestamp:        p.Timestamp,

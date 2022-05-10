@@ -30,6 +30,7 @@ var (
 	pathStatus            = "/eth/v1/builder/status"
 	pathRegisterValidator = "/eth/v1/builder/validators"
 	pathGetHeader         = "/eth/v1/builder/header/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{pubkey:0x[a-fA-F0-9]+}"
+	pathGetPayload        = "/eth/v1/builder/blinded_blocks"
 )
 
 type RelayCmd struct {
@@ -115,11 +116,13 @@ func (r *RelayCmd) startRESTApi(ctx context.Context, backend *RelayBackend) {
 }
 
 type RelayBackend struct {
-	log            *logrus.Logger
-	engine         *EngineCmd
+	log    *logrus.Logger
+	engine *EngineCmd
+	pk     types.PublicKey
+	sk     bls.SecretKey
+
 	recentPayloads *lru.Cache
-	pk             types.PublicKey
-	sk             bls.SecretKey
+	latestPubkey   types.PublicKey // cache for pubkey from latest getHeader call
 }
 
 func NewRelayBackend(log *logrus.Logger) (*RelayBackend, error) {
@@ -135,7 +138,7 @@ func NewRelayBackend(log *logrus.Logger) (*RelayBackend, error) {
 	sk, _ := bls.RandKey()
 	var pk types.PublicKey
 	copy(pk[:], sk.PublicKey().Marshal())
-	return &RelayBackend{log, engine, cache, pk, sk}, nil
+	return &RelayBackend{log, engine, pk, sk, cache, types.PublicKey{}}, nil
 }
 
 type hashTreeRoot interface {
@@ -165,6 +168,7 @@ func (r *RelayBackend) getRouter() http.Handler {
 	router.HandleFunc(pathStatus, r.handleStatus).Methods(http.MethodGet)
 	router.HandleFunc(pathRegisterValidator, r.handleRegisterValidator).Methods(http.MethodPost)
 	router.HandleFunc(pathGetHeader, r.handleGetHeader).Methods(http.MethodGet)
+	router.HandleFunc(pathGetPayload, r.handleGetPayload).Methods(http.MethodPost)
 
 	// Add logging and return router
 	loggedRouter := LoggingMiddleware(router, r.log)
@@ -192,14 +196,14 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 		return
 	}
 
-	ok, err := verifySignature(payload.Message, payload.Message.Pubkey[:], payload.Signature)
+	ok, err := verifySignature(payload.Message, payload.Message.Pubkey[:], payload.Signature[:])
 	if !ok || err != nil {
 		r.log.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// TODO: update mapping
+	// TODO: update mapping?
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -252,12 +256,41 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		Data:    &types.SignedBuilderBid{Message: &bid, Signature: sig},
 	}
 
+	if err = r.latestPubkey.UnmarshalText([]byte(pubkey)); err != nil {
+		plog.Warn("Cannot unmarshal pubkey")
+		http.Error(w, "cannot unmarshal pubkey", http.StatusBadRequest)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request) {
+	// plog := r.log.WithField("method", "getPayload")
+
+	payload := new(types.GetPayloadRequest)
+	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(payload.Signature) != 96 {
+		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ok, err := verifySignature(payload.Message, r.latestPubkey[:], payload.Signature[:])
+	if !ok || err != nil {
+		r.log.WithError(err).Error("error verifying signature")
+		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
+		return
+	}
+
 }
 
 // func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, parentHash common.Hash) (*types.SignedBuilderBidV1, error) {

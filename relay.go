@@ -234,7 +234,7 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	payloadREST, err := types.PayloadToRESTPayload(payload.(*types.ExecutionPayloadV1))
+	payloadREST, err := types.ELPayloadToRESTPayload(payload.(*types.ExecutionPayloadV1))
 	if err != nil {
 		plog.Warn("Cannot convert payload to payloadREST")
 		http.Error(w, "cannot convert payload to payloadREST", http.StatusBadRequest)

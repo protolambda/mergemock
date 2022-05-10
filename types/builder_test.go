@@ -223,4 +223,11 @@ func TestExecutionPayloadREST(t *testing.T) {
 	err = json.Unmarshal(b, msg2)
 	require.NoError(t, err)
 	require.Equal(t, msg, msg2)
+
+	// Check converting to EL style and back
+	elMsg, err := RESTPayloadToELPayload(msg2)
+	require.NoError(t, err)
+	clMsg, err := ELPayloadToRESTPayload(elMsg)
+	require.NoError(t, err)
+	require.Equal(t, msg, clMsg)
 }

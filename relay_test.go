@@ -155,7 +155,7 @@ func TestGetHeader(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to initialize engine")
 
-	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk[:])
+	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk)
 	rr := relay.testRequest(t, "GET", path, nil)
 	require.Equal(t, http.StatusOK, rr.Code)
 
@@ -196,7 +196,7 @@ func TestGetPayload(t *testing.T) {
 	require.NoError(t, err, "unable to initialize engine")
 
 	// Call getHeader to prepare payload
-	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk[:])
+	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk)
 	rr := relay.testRequest(t, "GET", path, nil)
 	require.Equal(t, http.StatusOK, rr.Code)
 	bid := new(types.GetHeaderResponse)

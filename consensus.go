@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -22,6 +23,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/prysmaticlabs/prysm/shared/bls"
+	"github.com/prysmaticlabs/prysm/shared/bls/blst"
 	"github.com/sirupsen/logrus"
 )
 
@@ -60,6 +63,7 @@ type ConsensusCmd struct {
 	ethashCfg ethash.Config
 
 	mockChain *MockChain
+	sk        bls.SecretKey
 }
 
 func (c *ConsensusCmd) Default() {
@@ -98,6 +102,12 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	client, err := rpc.DialContext(ctx, c.EngineAddr, c.jwtSecret)
 	if err != nil {
 		return err
+	}
+
+	// Create a BLS key
+	c.sk, err = blst.RandKey()
+	if err != nil {
+		return errors.New("unable to generate bls key pair")
 	}
 
 	c.ethashCfg = ethash.Config{
@@ -385,11 +395,11 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, at
 func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId types.PayloadID) (*types.ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
 	if c.BuilderAddr != "" {
-		header, err := api.BuilderGetHeader(c.ctx, log, c.BuilderAddr, c.mockChain.CurrentHeader().Hash())
+		header, err := api.BuilderGetHeader(c.ctx, log, c.sk, c.BuilderAddr, c.mockChain.CurrentHeader().Hash())
 		if err != nil {
 			return nil, err
 		}
-		payload, err := api.BuilderGetPayload(ctx, log, c.BuilderAddr, header)
+		payload, err := api.BuilderGetPayload(ctx, log, c.sk, c.BuilderAddr, header)
 		if err != nil {
 			return nil, err
 		}

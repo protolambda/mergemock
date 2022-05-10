@@ -1,6 +1,8 @@
 package types
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -196,7 +198,7 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, err
 	}, nil
 }
 
-func PayloadToRESTPayload(p *ExecutionPayloadV1) (*ExecutionPayloadREST, error) {
+func ELPayloadToRESTPayload(p *ExecutionPayloadV1) (*ExecutionPayloadREST, error) {
 	txs := make([]hexutil.Bytes, len(p.Transactions))
 	for i, tx := range p.Transactions {
 		txs[i] = hexutil.Bytes(tx)
@@ -216,6 +218,33 @@ func PayloadToRESTPayload(p *ExecutionPayloadV1) (*ExecutionPayloadREST, error) 
 		ExtraData:     [32]byte(common.BytesToHash(p.ExtraData)),
 		BaseFeePerGas: [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
 		BlockHash:     [32]byte(p.BlockHash),
+		Transactions:  txs,
+	}, nil
+}
+
+func RESTPayloadToELPayload(p *ExecutionPayloadREST) (*ExecutionPayloadV1, error) {
+	txs := make([][]byte, len(p.Transactions))
+	for i, tx := range p.Transactions {
+		txs[i] = []byte(tx)
+	}
+
+	baseFeePerGas := new(big.Int)
+	baseFeePerGas.SetBytes(p.BaseFeePerGas[:])
+
+	return &ExecutionPayloadV1{
+		ParentHash:    common.Hash(p.ParentHash),
+		FeeRecipient:  common.Address(p.FeeRecipient),
+		StateRoot:     common.Hash(p.StateRoot),
+		ReceiptsRoot:  common.Hash(p.ReceiptsRoot),
+		LogsBloom:     types.Bloom(p.LogsBloom),
+		Random:        common.Hash(p.Random),
+		Number:        p.BlockNumber,
+		GasLimit:      p.GasLimit,
+		GasUsed:       p.GasUsed,
+		Timestamp:     p.Timestamp,
+		ExtraData:     []byte(p.ExtraData[:]),
+		BaseFeePerGas: baseFeePerGas,
+		BlockHash:     common.Hash(p.BlockHash),
 		Transactions:  txs,
 	}, nil
 }

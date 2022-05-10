@@ -204,6 +204,8 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 		return
 	}
 
+	// TODO: update mapping
+
 	w.WriteHeader(http.StatusOK)
 }
 

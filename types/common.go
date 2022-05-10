@@ -160,6 +160,38 @@ func (h Hash) String() string {
 	return hexutil.Bytes(h[:]).String()
 }
 
+func (r Root) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(r[:]).MarshalText()
+}
+
+func (r *Root) UnmarshalJSON(input []byte) error {
+	b := hexutil.Bytes(r[:])
+	b.UnmarshalJSON(input)
+	if len(b) != 32 {
+		return ErrLength
+	}
+	r.FromSlice(b)
+	return nil
+}
+
+func (r *Root) UnmarshalText(input []byte) error {
+	b := hexutil.Bytes(r[:])
+	b.UnmarshalText(input)
+	if len(b) != 32 {
+		return ErrLength
+	}
+	r.FromSlice(b)
+	return nil
+}
+
+func (r *Root) FromSlice(x []byte) {
+	copy(r[:], x)
+}
+
+func (r Root) String() string {
+	return hexutil.Bytes(r[:]).String()
+}
+
 func (c CommitteeBits) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(c[:]).MarshalText()
 }

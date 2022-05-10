@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/gorilla/mux"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/prysmaticlabs/prysm/shared/bls"
@@ -62,7 +61,9 @@ func (r *RelayCmd) Help() string {
 	return "Run a mock relayer."
 }
 
-func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
+func (r *RelayCmd) Run(ctx context.Context) error {
+	r.ctx = ctx
+	r.close = make(chan struct{})
 	if err := r.initLogger(ctx); err != nil {
 		// Logger wasn't initialized so we can't log. Error out instead.
 		return err
@@ -74,19 +75,8 @@ func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 	if err := backend.engine.Run(ctx); err != nil {
 		r.log.WithField("err", err).Fatal("Unable to initialize engine")
 	}
-	r.startRESTApi(ctx, backend)
-	go r.RunNode()
-	log.Info("Relay listening on " + r.ListenAddr)
+	go r.startRESTApi(ctx, backend)
 	return nil
-}
-
-func (r *RelayCmd) RunNode() {
-	r.log.Info("started")
-	go r.srv.ListenAndServe()
-	for range r.close {
-		r.srv.Close()
-		return
-	}
 }
 
 func (r *RelayCmd) Close() error {
@@ -102,8 +92,6 @@ func (r *RelayCmd) initLogger(ctx context.Context) error {
 		return err
 	}
 	r.log = logr
-	r.ctx = ctx
-	r.close = make(chan struct{})
 	return nil
 }
 
@@ -116,6 +104,13 @@ func (r *RelayCmd) startRESTApi(ctx context.Context, backend *RelayBackend) {
 		ReadHeaderTimeout: r.Timeout.ReadHeader,
 		WriteTimeout:      r.Timeout.Write,
 		IdleTimeout:       r.Timeout.Idle,
+	}
+
+	r.log.Info("Relay webserver started, listening on " + r.ListenAddr)
+	go r.srv.ListenAndServe()
+	for range r.close {
+		r.srv.Close()
+		return
 	}
 }
 

@@ -3,9 +3,12 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -187,7 +190,7 @@ func TestExecutionPayloadREST(t *testing.T) {
 		GasLimit:      5002,
 		GasUsed:       5003,
 		Timestamp:     5004,
-		ExtraData:     Hash{0x0d},
+		ExtraData:     hexutil.Bytes{0x0d},
 		BaseFeePerGas: IntToU256(123456789),
 		BlockHash:     blockHash,
 		Transactions:  []hexutil.Bytes{*tx1},
@@ -209,7 +212,7 @@ func TestExecutionPayloadREST(t *testing.T) {
         "gas_limit": "5002",
         "gas_used": "5003",
         "timestamp": "5004",
-        "extra_data": "0x0d00000000000000000000000000000000000000000000000000000000000000",
+        "extra_data": "0x0d",
         "base_fee_per_gas": "123456789",
         "block_hash": "0xa100000000000000000000000000000000000000000000000000000000000000",
         "transactions": [
@@ -230,4 +233,34 @@ func TestExecutionPayloadREST(t *testing.T) {
 	clMsg, err := ELPayloadToRESTPayload(elMsg)
 	require.NoError(t, err)
 	require.Equal(t, msg, clMsg)
+}
+
+func TestExecutionPayloadV1(t *testing.T) {
+	msgEl1 := &ExecutionPayloadV1{
+		ParentHash:    common.Hash{0x01},
+		FeeRecipient:  common.Address{0x02},
+		StateRoot:     common.Hash{0x09},
+		ReceiptsRoot:  common.Hash{0x0a},
+		LogsBloom:     types.Bloom{0x0b},
+		Random:        common.Hash{0x0c},
+		Number:        5001,
+		GasLimit:      5002,
+		GasUsed:       5003,
+		Timestamp:     5004,
+		ExtraData:     []byte{0x0d},
+		BaseFeePerGas: big.NewInt(1234567),
+		BlockHash:     common.Hash{0xa1},
+		Transactions:  [][]byte{{0x01}},
+	}
+
+	// Convert EL -> CL
+	msgCl, err := ELPayloadToRESTPayload(msgEl1)
+	require.NoError(t, err)
+
+	// Convert CL -> EL
+	msgEl2, err := RESTPayloadToELPayload(msgCl)
+	require.NoError(t, err)
+
+	// Make sure everything is still the same
+	require.Equal(t, msgEl1, msgEl2)
 }

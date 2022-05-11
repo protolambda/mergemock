@@ -124,7 +124,7 @@ type ExecutionPayloadREST struct {
 	GasLimit      uint64          `json:"gas_limit,string"`
 	GasUsed       uint64          `json:"gas_used,string"`
 	Timestamp     uint64          `json:"timestamp,string"`
-	ExtraData     Hash            `json:"extra_data" ssz-size:"32"`
+	ExtraData     hexutil.Bytes   `json:"extra_data" ssz-size:"32"`
 	BaseFeePerGas U256Str         `json:"base_fee_per_gas" ssz-max:"32"`
 	BlockHash     Hash            `json:"block_hash" ssz-size:"32"`
 	Transactions  []hexutil.Bytes `json:"transactions"` // ssz-size/ssz-max:"2048"?
@@ -238,7 +238,7 @@ func ELPayloadToRESTPayload(p *ExecutionPayloadV1) (*ExecutionPayloadREST, error
 		GasLimit:      p.GasLimit,
 		GasUsed:       p.GasUsed,
 		Timestamp:     p.Timestamp,
-		ExtraData:     [32]byte(common.BytesToHash(p.ExtraData)),
+		ExtraData:     hexutil.Bytes(p.ExtraData),
 		BaseFeePerGas: [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
 		BlockHash:     [32]byte(p.BlockHash),
 		Transactions:  txs,

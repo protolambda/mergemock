@@ -1,145 +1,110 @@
 package api
 
 import (
+	"bytes"
 	"context"
-	"math/big"
-	"mergemock/rpc"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"mergemock/types"
+	"net/http"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
-	gethRpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/trie"
-	"github.com/holiman/uint256"
+	"github.com/prysmaticlabs/prysm/shared/bls"
 	"github.com/sirupsen/logrus"
 )
 
-//go:generate go run github.com/fjl/gencodec -type ExecutionPayloadHeaderV1 -field-override executionPayloadHeaderMarshalling -out gen_edh.go
+func BuilderGetHeader(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.SecretKey, builderAddr string, blockHash common.Hash) (*types.ExecutionPayloadHeader, error) {
+	e := log.WithField("blockHash", blockHash)
+	e.Debug("getting header")
 
-// ExecutableDataV1 structure described at https://github.com/ethereum/execution-apis/src/engine/specification.md
-type ExecutionPayloadHeaderV1 struct {
-	ParentHash       common.Hash    `json:"parentHash"    gencodec:"required"`
-	FeeRecipient     common.Address `json:"feeRecipient"  gencodec:"required"`
-	StateRoot        common.Hash    `json:"stateRoot"     gencodec:"required"`
-	ReceiptsRoot     common.Hash    `json:"receiptsRoot"  gencodec:"required"`
-	LogsBloom        []byte         `json:"logsBloom"     gencodec:"required"`
-	Random           common.Hash    `json:"prevRandao"    gencodec:"required"`
-	Number           uint64         `json:"blockNumber"   gencodec:"required"`
-	GasLimit         uint64         `json:"gasLimit"      gencodec:"required"`
-	GasUsed          uint64         `json:"gasUsed"       gencodec:"required"`
-	Timestamp        uint64         `json:"timestamp"     gencodec:"required"`
-	ExtraData        []byte         `json:"extraData"     gencodec:"required"`
-	BaseFeePerGas    *big.Int       `json:"baseFeePerGas" gencodec:"required"`
-	BlockHash        common.Hash    `json:"blockHash"     gencodec:"required"`
-	TransactionsRoot common.Hash    `json:"transactionsRoot"  gencodec:"required"`
-}
-
-// JSON type overrides for executableData.
-type executionPayloadHeaderMarshalling struct {
-	Number        hexutil.Uint64
-	GasLimit      hexutil.Uint64
-	GasUsed       hexutil.Uint64
-	Timestamp     hexutil.Uint64
-	BaseFeePerGas *hexutil.Big
-	ExtraData     hexutil.Bytes
-	LogsBloom     hexutil.Bytes
-}
-
-// See https://github.com/flashbots/mev-boost#signedblindedbeaconblock
-type SignedBlindedBeaconBlock struct {
-	Message   *BlindedBeaconBlock `json:"message"`
-	Signature string              `json:"signature"`
-}
-
-// See https://github.com/flashbots/mev-boost#blindedbeaconblock
-type BlindedBeaconBlock struct {
-	Body BlindedBeaconBlockBody `json:"body"`
-}
-
-type BlindedBeaconBlockBody struct {
-	ExecutionPayload ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
-}
-
-type SignedBuilderReceipt struct {
-	Message   *BuilderReceipt `json:"message"`
-	Signature string          `json:"signature"`
-}
-
-type BuilderReceipt struct {
-	PayloadHeader    ExecutionPayloadHeaderV1 `json:"execution_payload_header"`
-	FeeRecipientDiff uint256.Int              `json:"feeRecipientDiff"`
-}
-
-func GetPayloadHeader(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadHeaderV1, error) {
-	e := log.WithField("payload_id", payloadId)
-	e.Debug("getting payload")
-	var result ExecutionPayloadHeaderV1
-	err := cl.CallContext(ctx, &result, "builder_getPayloadHeaderV1", payloadId)
+	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 1, blockHash.Hex(), sk.PublicKey().Marshal())
+	url := builderAddr + path
+	resp, err := http.Get(url)
 	if err != nil {
-		e = e.WithError(err)
-		if rpcErr, ok := err.(gethRpc.Error); ok {
-			code := ErrorCode(rpcErr.ErrorCode())
-			if code != UnavailablePayload {
-				e.WithField("code", code).Warn("unexpected error code in get-payload response")
-			} else {
-				e.Warn("unavailable payload in get-payload request")
-			}
-		} else {
-			e.Error("failed to get payload header")
-		}
 		return nil, err
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("builder REST API returned non-200 status code: %d", resp.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	bid := new(types.GetHeaderResponse)
+	err = json.Unmarshal(body, bid)
+	if err != nil {
+		return nil, err
+	}
+
 	e.Debug("Received payload")
-	return &result, nil
+	return bid.Data.Message.Header, nil
 }
 
-func ProposePayload(ctx context.Context, cl *rpc.Client, log logrus.Ext1FieldLogger, header *ExecutionPayloadHeaderV1) (*ExecutionPayloadV1, error) {
+func BuilderGetPayload(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.SecretKey, builderAddr string, header *types.ExecutionPayloadHeader) (*types.ExecutionPayloadV1, error) {
 	e := log.WithField("block_hash", header.BlockHash)
 	e.Debug("sending payload for execution")
-	var result ExecutionPayloadV1
 
-	beaconBlock := BlindedBeaconBlock{
-		Body: BlindedBeaconBlockBody{ExecutionPayload: *header},
+	msg := &types.BlindedBeaconBlock{
+		Slot:          1,
+		ProposerIndex: 1,
+		Body: &types.BlindedBeaconBlockBody{
+			Eth1Data:               &types.Eth1Data{},
+			SyncAggregate:          &types.SyncAggregate{},
+			ExecutionPayloadHeader: header,
+		},
 	}
-	err := cl.CallContext(ctx, &result, "builder_proposeBlindedBlockV1", SignedBlindedBeaconBlock{Message: &beaconBlock})
 
+	// Sign payload
+	root, err := msg.HashTreeRoot()
 	if err != nil {
-		e = e.WithError(err)
-		if rpcErr, ok := err.(gethRpc.Error); ok {
-			code := ErrorCode(rpcErr.ErrorCode())
-			if code != UnavailablePayload {
-				e.WithField("code", code).Warn("unexpected error code in propose-payload response")
-			} else {
-				e.Warn("unavailable payload in propose-payload request")
-			}
-		} else {
-			e.Error("failed to propose payload")
-		}
 		return nil, err
 	}
+	sig := sk.Sign(root[:]).Marshal()
+	var signature types.Signature
+	signature.FromSlice(sig)
+
+	payloadBytes, err := json.Marshal(types.SignedBlindedBeaconBlock{
+		Message:   msg,
+		Signature: signature,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	url := builderAddr + "/eth/v1/builder/blinded_blocks"
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("builder REST API returned non-200 status code: %d", resp.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	getPayloadResponse := new(types.GetPayloadResponse)
+	err = json.Unmarshal(body, getPayloadResponse)
+	if err != nil {
+		return nil, err
+	}
+
 	e.Debug("Received proposed payload")
-	return &result, nil
-}
-
-func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeaderV1, error) {
-	txs, err := decodeTransactions(p.Transactions)
+	elPayload, err := types.RESTPayloadToELPayload(getPayloadResponse.Data)
 	if err != nil {
 		return nil, err
 	}
-	return &ExecutionPayloadHeaderV1{
-		ParentHash:       p.ParentHash,
-		FeeRecipient:     p.FeeRecipient,
-		StateRoot:        p.StateRoot,
-		ReceiptsRoot:     p.ReceiptsRoot,
-		LogsBloom:        p.LogsBloom,
-		Random:           p.Random,
-		Number:           p.Number,
-		GasLimit:         p.GasLimit,
-		GasUsed:          p.GasUsed,
-		Timestamp:        p.Timestamp,
-		ExtraData:        p.ExtraData,
-		BaseFeePerGas:    (*big.Int)(p.BaseFeePerGas),
-		BlockHash:        p.BlockHash,
-		TransactionsRoot: types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil)),
-	}, nil
+
+	return elPayload, nil
 }

@@ -244,10 +244,6 @@ func (e *Error) Error() string  { return e.err.Error() }
 func (e *Error) Code() int      { return -1 }
 func (e *Error) String() string { return e.Error() }
 
-func errorf(format string, args ...interface{}) *Error {
-	return &Error{fmt.Errorf(format, args...)}
-}
-
 // Hello is the RLP structure of the protocol handshake.
 type Hello struct {
 	Version    uint64

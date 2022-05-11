@@ -7,11 +7,20 @@ Experimental debug tooling, mocking the execution engine and consensus node for 
 
 To get started, build `mergemock` and download the `genesis.json`.
 
-```console
-$ go build . mergemock
+```bash
 $ wget https://gist.githubusercontent.com/lightclient/799c727e826483a2804fc5013d0d3e3d/raw/2e8824fa8d9d9b040f351b86b75c66868fb9b115/genesis.json
+$ openssl rand -hex 32 | tr -d "\n" > jwt.hex
+
+# Build
+$ go build . mergemock
+
+# Run mergemock with engine and consensus
 $ ./mergemock engine
 $ ./mergemock consensus --slot-time=4s
+
+# Run mergemock with builder relay (which also starts the engine)
+$ ./mergemock relay
+$ ./mergemock consensus --slot-time=4s --builder=http://localhost:28545
 ```
 
 ## Usage
@@ -26,8 +35,8 @@ Run a mock Execution Engine.
   --slots-per-epoch           Slots per epoch (default: 0) (type: uint64)
   --datadir                   Directory to store execution chain data (empty for in-memory data) (type: string)
   --genesis                   Genesis execution-config file (default: genesis.json) (type: string)
-  --listen-addr               Address to bind RPC HTTP server to (default: 127.0.0.1:8550) (type: string)
-  --ws-addr                   Address to serve /ws endpoint on for websocket JSON-RPC (default: 127.0.0.1:8551) (type: string)
+  --listen-addr               Address to bind RPC HTTP server to (default: 127.0.0.1:8551) (type: string)
+  --ws-addr                   Address to serve /ws endpoint on for websocket JSON-RPC (default: 127.0.0.1:8552) (type: string)
   --cors                      List of allowable origins (CORS http header) (default: *) (type: stringSlice)
 
 # log
@@ -105,6 +114,43 @@ Tracing options
   --trace.enable-return-data  enable return data capture (default: false) (type: bool)
   --trace.debug               print output during capture end (default: false) (type: bool)
   --trace.limit               maximum length of output, but zero means unlimited (default: 0) (type: int)
+```
+
+### `relay`
+
+```console
+$ mergemock relay --help
+
+Run a mock builder relay.
+
+  --listen-addr               Address to bind relay HTTP server to (default: 127.0.0.1:28545) (type: string)
+  --engine-listen-addr        Address to bind engine JSON-RPC server to (default: 127.0.0.1:8551) (type: string)
+  --engine-listen-addr-ws     Address to bind engine JSON-RPC WebSocket server to (default: 127.0.0.1:8552) (type: string)
+
+# timeout
+Configure timeouts of the HTTP servers
+
+  --timeout.read              Timeout for body reads. None if 0. (default: 30s) (type: duration)
+  --timeout.read-header       Timeout for header reads. None if 0. (default: 10s) (type: duration)
+  --timeout.write             Timeout for writes. None if 0. (default: 30s) (type: duration)
+  --timeout.idle              Timeout to disconnect idle client connections. None if 0. (default: 5m0s) (type: duration)
+
+# log
+Change logger configuration
+
+  --log.level                 Log level: trace, debug, info, warn/warning, error, fatal, panic. Capitals are accepted too. (default: info) (type: string)
+  --log.color                 Color the log output. Defaults to true if terminal is detected. (default: true) (type: bool)
+  --log.format                Format the log output. Supported formats: 'text', 'json' (default: text) (type: string)
+  --log.timestamps            Timestamp format in logging. Empty disables timestamps. (default: 2006-01-02T15:04:05Z07:00) (type: string)
+```
+
+## Development
+
+For development, install the following tools:
+
+```bash
+go install honnef.co/go/tools/cmd/staticcheck@v0.3.1
+go install github.com/ferranbt/fastssz/sszgen@latest
 ```
 
 ## License

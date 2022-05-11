@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
-	. "mergemock/api"
+	"mergemock/api"
 	"mergemock/p2p"
 	"mergemock/rpc"
+	"mergemock/types"
 	"os"
 	"time"
 
@@ -15,12 +17,14 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
+	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/protocols/eth"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/prysmaticlabs/prysm/shared/bls"
+	"github.com/prysmaticlabs/prysm/shared/bls/blst"
 	"github.com/sirupsen/logrus"
 )
 
@@ -33,7 +37,7 @@ type ConsensusCmd struct {
 	// - % random finality
 
 	EngineAddr    string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
-	BuilderAddr   string `ask:"--builder" help:"Address of builder JSON-RPC endpoint to use"`
+	BuilderAddr   string `ask:"--builder" help:"Address of builder relay REST API endpoint to use"`
 	DataDir       string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	EthashDir     string `ask:"--ethashdir" help:"Directory to store ethash data"`
 	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
@@ -53,19 +57,18 @@ type ConsensusCmd struct {
 	log       logrus.Ext1FieldLogger
 	ctx       context.Context
 	engine    *rpc.Client
-	builder   *rpc.Client
 	jwtSecret []byte
 	db        ethdb.Database
 
 	ethashCfg ethash.Config
-	peer      *p2p.Conn
 
 	mockChain *MockChain
+	sk        bls.SecretKey
 }
 
 func (c *ConsensusCmd) Default() {
 	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
-	c.EngineAddr = "http://127.0.0.1:8550"
+	c.EngineAddr = "http://127.0.0.1:8551"
 	c.GenesisPath = "genesis.json"
 	c.JwtSecretPath = "jwt.hex"
 	c.Enode = ""
@@ -101,13 +104,10 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	// Connect to builder api (if required)
-	if c.BuilderAddr != "" {
-		builder, err := rpc.DialContext(ctx, c.BuilderAddr, nil)
-		if err != nil {
-			return err
-		}
-		c.builder = builder
+	// Create a BLS key
+	c.sk, err = blst.RandKey()
+	if err != nil {
+		return errors.New("unable to generate bls key pair")
 	}
 
 	c.ethashCfg = ethash.Config{
@@ -225,7 +225,7 @@ func (c *ConsensusCmd) RunNode() {
 			pow: ethash.New(c.ethashCfg, nil, false),
 			log: c.log,
 		}
-		payloadId = make(chan PayloadID)
+		payloadId = make(chan types.PayloadID)
 	)
 	defer slots.Stop()
 
@@ -292,7 +292,7 @@ func (c *ConsensusCmd) RunNode() {
 			// Send bad hash
 			if c.RNG.Float64() < c.Freq.InvalidHashFreq {
 				c.log.Info("Sending payload with invalid hash")
-				payload := &ExecutionPayloadV1{
+				payload := &types.ExecutionPayloadV1{
 					ParentHash:    c.mockChain.CurrentHeader().Hash(),
 					FeeRecipient:  common.Address{},
 					Number:        c.mockChain.CurrentHeader().Number.Uint64(),
@@ -302,7 +302,7 @@ func (c *ConsensusCmd) RunNode() {
 					BaseFeePerGas: c.mockChain.CurrentHeader().BaseFee,
 					BlockHash:     common.HexToHash("0xdeadbeef"),
 				}
-				go NewPayloadV1(c.ctx, c.engine, c.log, payload)
+				go api.NewPayloadV1(c.ctx, c.engine, c.log, payload)
 				continue
 			}
 
@@ -325,7 +325,7 @@ func (c *ConsensusCmd) RunNode() {
 			// If we're proposing, get a block from the engine!
 			select {
 			case id := <-payloadId:
-				slotLog.Info("Update forkchoice to block built by engine")
+				slotLog.WithField("payloadId", id).Info("Update forkchoice to block built by engine")
 				go c.mockProposal(slotLog, id, slot, false)
 				continue
 			default:
@@ -340,7 +340,7 @@ func (c *ConsensusCmd) RunNode() {
 			timestamp := c.SlotTimestamp(slot)
 			gasLimit := parent.GasLimit
 			extraData := []byte("proto says hi")
-			uncleBlocks := []*types.Header{}
+			uncleBlocks := []*ethTypes.Header{}
 			creator := TransactionsCreator{c.ConsensusBehavior.TestAccounts.accounts, dummyTxCreator}
 
 			block, err := c.mockChain.AddNewBlock(parent.Hash(), coinbase, timestamp, gasLimit, creator, [32]byte{}, extraData, uncleBlocks, true)
@@ -351,17 +351,20 @@ func (c *ConsensusCmd) RunNode() {
 
 			slotLog.WithField("blockhash", block.Hash()).Debug("Built external block")
 
-			go func(log logrus.Ext1FieldLogger, block *types.Block, safe, final common.Hash) {
+			go func(log logrus.Ext1FieldLogger, block *ethTypes.Block, safe, final common.Hash) {
 				c.mockExecution(log, block)
 				latest := block.Hash()
 				// Note: head and safe hash are set to the same hash,
 				// until forkchoice updates are more attestation-weight aware.
-				var attributes *PayloadAttributesV1
+				var attributes *types.PayloadAttributesV1
 				if c.RNG.Float64() < c.Freq.ProposalFreq {
 					// proposing next slot!
 					attributes = c.makePayloadAttributes(slot + 1)
 				}
-				id := c.sendForkchoiceUpdated(latest, safe, final, attributes)
+				id, err := c.sendForkchoiceUpdated(latest, safe, final, attributes)
+				if err != nil {
+					maybeExit(c.SlotBound)
+				}
 				if id != nil {
 					payloadId <- *id
 				}
@@ -380,29 +383,23 @@ func (c *ConsensusCmd) RunNode() {
 	}
 }
 
-func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, attributes *PayloadAttributesV1) *PayloadID {
-	result, _ := ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
-	if result.PayloadStatus.Status != ExecutionValid {
+func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, attributes *types.PayloadAttributesV1) (*types.PayloadID, error) {
+	result, _ := api.ForkchoiceUpdatedV1(c.ctx, c.engine, c.log, latest, safe, final, attributes)
+	if result.PayloadStatus.Status != types.ExecutionValid {
 		c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
+		return nil, fmt.Errorf("update not considered valid")
 	}
-	if c.builder != nil && attributes != nil {
-		result, _ := ForkchoiceUpdatedV1(c.ctx, c.builder, c.log, latest, safe, final, attributes)
-		if result.PayloadStatus.Status != ExecutionValid {
-			c.log.WithField("status", result.PayloadStatus).Error("Update not considered valid")
-		}
-		return result.PayloadID
-	}
-	return result.PayloadID
+	return result.PayloadID, nil
 }
 
-func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId PayloadID) (*ExecutionPayloadV1, error) {
+func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId types.PayloadID) (*types.ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
-	if c.builder != nil {
-		header, err := GetPayloadHeader(c.ctx, c.builder, log, payloadId)
+	if c.BuilderAddr != "" {
+		header, err := api.BuilderGetHeader(c.ctx, log, c.sk, c.BuilderAddr, c.mockChain.CurrentHeader().Hash())
 		if err != nil {
 			return nil, err
 		}
-		payload, err := ProposePayload(ctx, c.builder, log, header)
+		payload, err := api.BuilderGetPayload(ctx, log, c.sk, c.BuilderAddr, header)
 		if err != nil {
 			return nil, err
 		}
@@ -410,14 +407,14 @@ func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1Field
 	}
 
 	// Otherwise, get payload from EL.
-	payload, err := GetPayloadV1(c.ctx, c.engine, log, payloadId)
+	payload, err := api.GetPayloadV1(c.ctx, c.engine, log, payloadId)
 	if err != nil {
 		return nil, err
 	}
 	return payload, err
 }
 
-func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId PayloadID, slot uint64, consensusFail bool) {
+func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId types.PayloadID, slot uint64, consensusFail bool) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
 
@@ -446,14 +443,14 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 	}
 
 	// Send it back to execution layer for execution
-	res, err := NewPayloadV1(ctx, c.engine, log, payload)
-	if err == nil && res.Status == ExecutionValid {
+	res, err := api.NewPayloadV1(ctx, c.engine, log, payload)
+	if err == nil && res.Status == types.ExecutionValid {
 		log.WithField("blockhash", block.Hash()).Debug("Processed payload in engine")
 		return
 	}
 	if err != nil {
 		log.WithError(err).Error("Failed to execute payload")
-	} else if res.Status == ExecutionInvalid {
+	} else if res.Status == types.ExecutionInvalid {
 		log.WithField("blockhash", block.Hash()).Error("Engine just produced payload and failed to execute it after!")
 	} else {
 		log.WithField("status", res.Status).Error("Unrecognized execution status")
@@ -461,26 +458,26 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId Payloa
 	maybeExit(c.SlotBound)
 }
 
-func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *types.Block) {
+func (c *ConsensusCmd) mockExecution(log logrus.Ext1FieldLogger, block *ethTypes.Block) {
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
 
 	// derive the random 32 bytes from the block hash for mocking ease
-	payload, err := BlockToPayload(block)
+	payload, err := api.BlockToPayload(block)
 
 	if err != nil {
 		log.WithError(err).Error("Failed to convert execution block to execution payload")
 		return
 	}
 
-	NewPayloadV1(ctx, c.engine, log, payload)
+	api.NewPayloadV1(ctx, c.engine, log, payload)
 }
 
-func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *types.Header, cfg vm.Config, accounts []TestAccount) []*types.Transaction {
+func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *state.StateDB, header *ethTypes.Header, cfg vm.Config, accounts []TestAccount) []*ethTypes.Transaction {
 	// TODO create some more txs and use all accounts
 	if len(accounts) != 0 {
-		signer := types.NewLondonSigner(config.ChainID)
-		txdata := &types.DynamicFeeTx{
+		signer := ethTypes.NewLondonSigner(config.ChainID)
+		txdata := &ethTypes.DynamicFeeTx{
 			ChainID:   config.ChainID,
 			Nonce:     statedb.GetNonce(accounts[0].addr),
 			To:        &accounts[0].addr,
@@ -489,15 +486,15 @@ func dummyTxCreator(config *params.ChainConfig, bc core.ChainContext, statedb *s
 			GasTipCap: big.NewInt(2),
 			Data:      []byte{},
 		}
-		tx := types.NewTx(txdata)
-		tx, _ = types.SignTx(tx, signer, accounts[0].pk)
-		return []*types.Transaction{tx}
+		tx := ethTypes.NewTx(txdata)
+		tx, _ = ethTypes.SignTx(tx, signer, accounts[0].pk)
+		return []*ethTypes.Transaction{tx}
 	} else {
 		return nil
 	}
 }
 
-func (c *ConsensusCmd) calcReorgTarget(chain *core.BlockChain, parent uint64, min uint64) *types.Header {
+func (c *ConsensusCmd) calcReorgTarget(chain *core.BlockChain, parent uint64, min uint64) *ethTypes.Header {
 	depth := c.RNG.Float64() * float64(c.ReorgMaxDepth)
 	target := uint64(math.Max(float64(parent)-depth, float64(min)))
 	return chain.GetHeaderByNumber(target)
@@ -510,10 +507,10 @@ func (c *ConsensusCmd) Close() error {
 	return nil
 }
 
-func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *PayloadAttributesV1 {
+func (c *ConsensusCmd) makePayloadAttributes(slot uint64) *types.PayloadAttributesV1 {
 	var prevRandao common.Hash
 	c.RNG.Read(prevRandao[:])
-	return &PayloadAttributesV1{
+	return &types.PayloadAttributesV1{
 		Timestamp:             c.SlotTimestamp(slot),
 		PrevRandao:            prevRandao,
 		SuggestedFeeRecipient: common.Address{0x13, 0x37},

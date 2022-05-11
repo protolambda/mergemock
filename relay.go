@@ -12,7 +12,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
-	lru "github.com/hashicorp/golang-lru"
 	"github.com/prysmaticlabs/prysm/shared/bls"
 	"github.com/sirupsen/logrus"
 )
@@ -128,8 +127,7 @@ type RelayBackend struct {
 	pk     types.PublicKey
 	sk     bls.SecretKey
 
-	recentPayloads *lru.Cache
-	latestPubkey   types.PublicKey // cache for pubkey from latest getHeader call
+	latestPubkey types.PublicKey // cache for pubkey from latest getHeader call
 }
 
 func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs string) (*RelayBackend, error) {
@@ -138,14 +136,11 @@ func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs st
 	engine.LogCmd.Default()
 	engine.ListenAddr = engineListenAddr
 	engine.WebsocketAddr = engineListenAddrWs
-	cache, err := lru.New(10)
-	if err != nil {
-		return nil, err
-	}
+
 	sk, _ := bls.RandKey()
 	var pk types.PublicKey
 	copy(pk[:], sk.PublicKey().Marshal())
-	return &RelayBackend{log, engine, pk, sk, cache, types.PublicKey{}}, nil
+	return &RelayBackend{log, engine, pk, sk, types.PublicKey{}}, nil
 }
 
 type hashTreeRoot interface {
@@ -240,15 +235,6 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	payloadREST, err := types.ELPayloadToRESTPayload(payload.(*types.ExecutionPayloadV1))
-	if err != nil {
-		plog.Warn("Cannot convert payload to payloadREST")
-		http.Error(w, "cannot convert payload to payloadREST", http.StatusBadRequest)
-		return
-	}
-
-	fmt.Println("getHeader set", payloadHeader.BlockHash)
-	r.recentPayloads.Add(payloadHeader.BlockHash, payloadREST)
 	plog.Info("Consensus client retrieved prepared payload header")
 
 	bid := types.BuilderBid{
@@ -285,7 +271,7 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 }
 
 func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request) {
-	// plog := r.log.WithField("method", "getPayload")
+	plog := r.log.WithField("method", "getPayload")
 
 	payload := new(types.SignedBlindedBeaconBlock)
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
@@ -300,24 +286,26 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 
 	ok, err := verifySignature(payload.Message, r.latestPubkey[:], payload.Signature[:])
 	if !ok || err != nil {
-		r.log.WithError(err).Error("error verifying signature")
+		plog.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
 		return
 	}
 
-	fmt.Println("getPayload get", payload.Message.Body.ExecutionPayloadHeader.BlockHash)
-	_execPayload, ok := r.recentPayloads.Get(payload.Message.Body.ExecutionPayloadHeader.BlockHash)
+	parentHashHex := payload.Message.Body.ExecutionPayloadHeader.ParentHash.String()
+	fmt.Println("===== getPayload get for parentHash", parentHashHex, "blockHash", payload.Message.Body.ExecutionPayloadHeader.BlockHash)
+	_execPayloadEL, ok := r.engine.backend.recentPayloads.Get(common.HexToHash(parentHashHex))
 	if !ok {
-		r.log.Warn("Cannot get unknown payload")
-		http.Error(w, "cannot get unknown payload", http.StatusBadRequest)
+		plog.Warn("Cannot get unknown payload")
+		http.Error(w, "Cannot get unknown payload", http.StatusBadRequest)
 		return
 	}
+	plog.Info(_execPayloadEL)
 
-	r.log.Info("Consensus client retrieved prepared payload header")
-	execPayload, ok := _execPayload.(*types.ExecutionPayloadREST)
-	if !ok {
-		r.log.Warn("Cannot read to payloadREST")
-		http.Error(w, "cannot read to payloadREST", http.StatusBadRequest)
+	execPayload, err := types.ELPayloadToRESTPayload(_execPayloadEL.(*types.ExecutionPayloadV1))
+	if err != nil {
+		plog.Warn("Cannot convert payload to payloadREST")
+		http.Error(w, "cannot convert payload to payloadREST", http.StatusBadRequest)
+		return
 	}
 
 	response := types.GetPayloadResponse{

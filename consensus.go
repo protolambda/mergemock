@@ -325,7 +325,7 @@ func (c *ConsensusCmd) RunNode() {
 			// If we're proposing, get a block from the engine!
 			select {
 			case id := <-payloadId:
-				slotLog.Info("Update forkchoice to block built by engine")
+				slotLog.WithField("payloadId", id).Info("Update forkchoice to block built by engine")
 				go c.mockProposal(slotLog, id, slot, false)
 				continue
 			default:

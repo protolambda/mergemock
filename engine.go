@@ -96,7 +96,7 @@ func (c *EngineCmd) Run(ctx context.Context, args ...string) error {
 }
 
 func (c *EngineCmd) RunNode() {
-	c.log.Info("started")
+	c.log.WithField("listenAddr", c.ListenAddr).Info("Engine started")
 
 	go c.srv.ListenAndServe()
 	go c.wsSrv.ListenAndServe()

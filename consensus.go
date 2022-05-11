@@ -37,7 +37,7 @@ type ConsensusCmd struct {
 	// - % random finality
 
 	EngineAddr    string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
-	BuilderAddr   string `ask:"--builder" help:"Address of builder JSON-RPC endpoint to use"`
+	BuilderAddr   string `ask:"--builder" help:"Address of builder relay REST API endpoint to use"`
 	DataDir       string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
 	EthashDir     string `ask:"--ethashdir" help:"Directory to store ethash data"`
 	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
@@ -68,7 +68,7 @@ type ConsensusCmd struct {
 
 func (c *ConsensusCmd) Default() {
 	c.BeaconGenesisTime = uint64(time.Now().Unix()) + 5
-	c.EngineAddr = "http://127.0.0.1:8550"
+	c.EngineAddr = "http://127.0.0.1:8551"
 	c.GenesisPath = "genesis.json"
 	c.JwtSecretPath = "jwt.hex"
 	c.Enode = ""

@@ -18,8 +18,9 @@ $ go build . mergemock
 $ ./mergemock engine
 $ ./mergemock consensus --slot-time=4s
 
-# Run mergemock relay (which also starts the engine)
+# Run mergemock with builder relay (which also starts the engine)
 $ ./mergemock relay
+$ ./mergemock consensus --slot-time=4s --builder=http://localhost:28545
 ```
 
 ## Usage
@@ -34,8 +35,8 @@ Run a mock Execution Engine.
   --slots-per-epoch           Slots per epoch (default: 0) (type: uint64)
   --datadir                   Directory to store execution chain data (empty for in-memory data) (type: string)
   --genesis                   Genesis execution-config file (default: genesis.json) (type: string)
-  --listen-addr               Address to bind RPC HTTP server to (default: 127.0.0.1:8550) (type: string)
-  --ws-addr                   Address to serve /ws endpoint on for websocket JSON-RPC (default: 127.0.0.1:8551) (type: string)
+  --listen-addr               Address to bind RPC HTTP server to (default: 127.0.0.1:8551) (type: string)
+  --ws-addr                   Address to serve /ws endpoint on for websocket JSON-RPC (default: 127.0.0.1:8552) (type: string)
   --cors                      List of allowable origins (CORS http header) (default: *) (type: stringSlice)
 
 # log

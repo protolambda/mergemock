@@ -36,9 +36,12 @@ var (
 
 type RelayCmd struct {
 	// connectivity options
-	ListenAddr string      `ask:"--listen-addr" help:"Address to bind HTTP server to"`
+	ListenAddr string      `ask:"--listen-addr" help:"Address to bind relay HTTP server to"`
 	Cors       []string    `ask:"--cors" help:"List of allowable origins (CORS http header)"`
 	Timeout    rpc.Timeout `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
+
+	EngineListenAddr   string `ask:"--engine-listen-addr" help:"Address to bind engine JSON-RPC server to"`
+	EngineListenAddrWs string `ask:"--engine-listen-addr-ws" help:"Address to bind engine JSON-RPC WebSocket server to"`
 
 	// embed logger options
 	LogCmd `ask:".log" help:"Change logger configuration"`
@@ -52,6 +55,9 @@ type RelayCmd struct {
 func (r *RelayCmd) Default() {
 	r.ListenAddr = "127.0.0.1:28545"
 	r.Cors = []string{"*"}
+
+	r.EngineListenAddr = "127.0.0.1:8551"
+	r.EngineListenAddrWs = "127.0.0.1:8552"
 
 	r.Timeout.Read = 30 * time.Second
 	r.Timeout.ReadHeader = 10 * time.Second
@@ -70,7 +76,7 @@ func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 		// Logger wasn't initialized so we can't log. Error out instead.
 		return err
 	}
-	backend, err := NewRelayBackend(r.log)
+	backend, err := NewRelayBackend(r.log, r.EngineListenAddr, r.EngineListenAddrWs)
 	if err != nil {
 		r.log.WithField("err", err).Fatal("Unable to initialize backend")
 	}
@@ -108,7 +114,7 @@ func (r *RelayCmd) startRESTApi(ctx context.Context, backend *RelayBackend) {
 		IdleTimeout:       r.Timeout.Idle,
 	}
 
-	r.log.Info("Relay webserver started, listening on " + r.ListenAddr)
+	r.log.WithField("listenAddr", r.ListenAddr).Info("Relay started")
 	go r.srv.ListenAndServe()
 	for range r.close {
 		r.srv.Close()
@@ -126,12 +132,12 @@ type RelayBackend struct {
 	latestPubkey   types.PublicKey // cache for pubkey from latest getHeader call
 }
 
-func NewRelayBackend(log *logrus.Logger) (*RelayBackend, error) {
+func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs string) (*RelayBackend, error) {
 	engine := &EngineCmd{}
 	engine.Default()
 	engine.LogCmd.Default()
-	engine.ListenAddr = "127.0.0.1:8550"
-	engine.WebsocketAddr = "127.0.0.1:8552"
+	engine.ListenAddr = engineListenAddr
+	engine.WebsocketAddr = engineListenAddrWs
 	cache, err := lru.New(10)
 	if err != nil {
 		return nil, err

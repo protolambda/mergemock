@@ -51,6 +51,8 @@ func BuilderGetPayload(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.S
 		Slot:          1,
 		ProposerIndex: 1,
 		Body: &types.BlindedBeaconBlockBody{
+			Eth1Data:               &types.Eth1Data{},
+			SyncAggregate:          &types.SyncAggregate{},
 			ExecutionPayloadHeader: header,
 		},
 	}

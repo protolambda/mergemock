@@ -25,7 +25,7 @@ type testRelayBackend struct {
 }
 
 func newTestRelay(t *testing.T) *testRelayBackend {
-	relay, err := NewRelayBackend(logrus.New())
+	relay, err := NewRelayBackend(logrus.New(), "127.0.0.1:38551", "127.0.0.1:38552")
 	if err != nil {
 		t.Fatal("unable to create relay")
 	}

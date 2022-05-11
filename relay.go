@@ -35,15 +35,13 @@ var (
 
 type RelayCmd struct {
 	// connectivity options
-	ListenAddr string      `ask:"--listen-addr" help:"Address to bind relay HTTP server to"`
-	Cors       []string    `ask:"--cors" help:"List of allowable origins (CORS http header)"`
-	Timeout    rpc.Timeout `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
-
+	ListenAddr         string `ask:"--listen-addr" help:"Address to bind relay HTTP server to"`
 	EngineListenAddr   string `ask:"--engine-listen-addr" help:"Address to bind engine JSON-RPC server to"`
 	EngineListenAddrWs string `ask:"--engine-listen-addr-ws" help:"Address to bind engine JSON-RPC WebSocket server to"`
 
-	// embed logger options
-	LogCmd `ask:".log" help:"Change logger configuration"`
+	// embed timeout and logger options
+	Timeout rpc.Timeout `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
+	LogCmd  `ask:".log" help:"Change logger configuration"`
 
 	close chan struct{}
 	log   *logrus.Logger
@@ -53,7 +51,6 @@ type RelayCmd struct {
 
 func (r *RelayCmd) Default() {
 	r.ListenAddr = "127.0.0.1:28545"
-	r.Cors = []string{"*"}
 
 	r.EngineListenAddr = "127.0.0.1:8551"
 	r.EngineListenAddrWs = "127.0.0.1:8552"
@@ -65,7 +62,7 @@ func (r *RelayCmd) Default() {
 }
 
 func (r *RelayCmd) Help() string {
-	return "Run a mock relayer."
+	return "Run a mock builder relay."
 }
 
 func (r *RelayCmd) Run(ctx context.Context, args ...string) error {

@@ -116,6 +116,34 @@ Tracing options
   --trace.limit               maximum length of output, but zero means unlimited (default: 0) (type: int)
 ```
 
+### `relay`
+
+```console
+$ mergemock relay --help
+
+Run a mock builder relay.
+
+  --listen-addr               Address to bind relay HTTP server to (default: 127.0.0.1:28545) (type: string)
+  --engine-listen-addr        Address to bind engine JSON-RPC server to (default: 127.0.0.1:8551) (type: string)
+  --engine-listen-addr-ws     Address to bind engine JSON-RPC WebSocket server to (default: 127.0.0.1:8552) (type: string)
+
+# timeout
+Configure timeouts of the HTTP servers
+
+  --timeout.read              Timeout for body reads. None if 0. (default: 30s) (type: duration)
+  --timeout.read-header       Timeout for header reads. None if 0. (default: 10s) (type: duration)
+  --timeout.write             Timeout for writes. None if 0. (default: 30s) (type: duration)
+  --timeout.idle              Timeout to disconnect idle client connections. None if 0. (default: 5m0s) (type: duration)
+
+# log
+Change logger configuration
+
+  --log.level                 Log level: trace, debug, info, warn/warning, error, fatal, panic. Capitals are accepted too. (default: info) (type: string)
+  --log.color                 Color the log output. Defaults to true if terminal is detected. (default: true) (type: bool)
+  --log.format                Format the log output. Supported formats: 'text', 'json' (default: text) (type: string)
+  --log.timestamps            Timestamp format in logging. Empty disables timestamps. (default: 2006-01-02T15:04:05Z07:00) (type: string)
+```
+
 ## Development
 
 For development, install the following tools:

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"mergemock/api"
@@ -13,10 +14,12 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
@@ -161,6 +164,20 @@ func (c *EngineCmd) startRPC(ctx context.Context) {
 	if err != nil {
 		c.log.Fatal(err)
 	}
+
+	rpcSrv.RegisterName("eth", c.backend)
+	if err := node.RegisterApis([]rpc.API{
+		{
+			Namespace:     "eth",
+			Version:       "1.0",
+			Service:       c.backend,
+			Public:        true,
+			Authenticated: false,
+		},
+	}, []string{"eth"}, rpcSrv, false); err != nil {
+		c.log.Fatal(fmt.Errorf("could not register api: %s", err))
+	}
+
 	c.rpcSrv = rpcSrv
 	c.srv = rpc.NewHTTPServer(ctx, c.log, c.rpcSrv, c.ListenAddr, c.Timeout, c.Cors)
 	c.wsSrv = rpc.NewWSServer(ctx, c.log, c.rpcSrv, c.WebsocketAddr, c.jwtSecret, c.Timeout, c.Cors)
@@ -179,6 +196,47 @@ func NewEngineBackend(log logrus.Ext1FieldLogger, mock *MockChain) (*EngineBacke
 		return nil, err
 	}
 	return &EngineBackend{log, mock, 0, cache}, nil
+}
+
+func (s *EngineBackend) rpcMarshalBlock(ctx context.Context, b *ethTypes.Block, inclTx bool, fullTx bool) (map[string]interface{}, error) {
+	fields, err := types.RPCMarshalBlock(b, inclTx, fullTx, s.mockChain.chain.Config())
+	if err != nil {
+		return nil, err
+	}
+	if inclTx {
+		fields["totalDifficulty"] = (*hexutil.Big)(s.mockChain.chain.GetTd(b.Hash(), b.NumberU64()))
+	}
+	return fields, err
+}
+
+func (s *EngineBackend) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (map[string]interface{}, error) {
+	block := s.mockChain.chain.GetBlockByHash(hash)
+	if block == nil {
+		return nil, errors.New("unknown block")
+	}
+	response, err := s.rpcMarshalBlock(ctx, block, true, fullTx)
+	return response, err
+}
+
+func (s *EngineBackend) GetBlockByNumber(ctx context.Context, number gethRpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
+	switch number {
+	case gethRpc.PendingBlockNumber:
+		return nil, errors.New("not implemented")
+	case gethRpc.LatestBlockNumber:
+		block := s.mockChain.chain.CurrentBlock()
+		if block == nil {
+			block = s.mockChain.chain.Genesis()
+		}
+		response, err := s.rpcMarshalBlock(ctx, block, true, fullTx)
+		return response, err
+	default:
+		block := s.mockChain.chain.GetBlockByNumber(uint64(number))
+		if block == nil {
+			return nil, errors.New("unknown block")
+		}
+		response, err := s.rpcMarshalBlock(ctx, block, true, fullTx)
+		return response, err
+	}
 }
 
 func (e *EngineBackend) GetPayloadV1(ctx context.Context, id types.PayloadID) (*types.ExecutionPayloadV1, error) {

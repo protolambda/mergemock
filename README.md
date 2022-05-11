@@ -7,11 +7,19 @@ Experimental debug tooling, mocking the execution engine and consensus node for 
 
 To get started, build `mergemock` and download the `genesis.json`.
 
-```console
-$ go build . mergemock
+```bash
 $ wget https://gist.githubusercontent.com/lightclient/799c727e826483a2804fc5013d0d3e3d/raw/2e8824fa8d9d9b040f351b86b75c66868fb9b115/genesis.json
+$ openssl rand -hex 32 | tr -d "\n" > jwt.hex
+
+# Build
+$ go build . mergemock
+
+# Run mergemock with engine and consensus
 $ ./mergemock engine
 $ ./mergemock consensus --slot-time=4s
+
+# Run mergemock relay (which also starts the engine)
+$ ./mergemock relay
 ```
 
 ## Usage

@@ -63,7 +63,7 @@ func (r *RelayCmd) Help() string {
 	return "Run a mock relayer."
 }
 
-func (r *RelayCmd) Run(ctx context.Context) error {
+func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 	r.ctx = ctx
 	r.close = make(chan struct{})
 	if err := r.initLogger(ctx); err != nil {

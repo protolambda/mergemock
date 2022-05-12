@@ -275,7 +275,6 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 	}
 
 	parentHashHex := payload.Message.Body.ExecutionPayloadHeader.ParentHash.String()
-	fmt.Println("===== getPayload get for parentHash", parentHashHex, "blockHash", payload.Message.Body.ExecutionPayloadHeader.BlockHash)
 	_execPayloadEL, ok := r.engine.backend.recentPayloads.Get(common.HexToHash(parentHashHex))
 	if !ok {
 		plog.Warn("Cannot get unknown payload")

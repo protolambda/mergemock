@@ -155,7 +155,9 @@ func (r *RelayBackend) getRouter() http.Handler {
 }
 
 func (r *RelayBackend) handleStatus(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{}`)
 }
 
 func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
@@ -183,7 +185,9 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 	}
 
 	// TODO: update mapping?
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{}`)
 }
 
 func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request) {
@@ -197,6 +201,8 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		"pubkey":     pubkey,
 	})
 	plog.Info("getHeader")
+
+	// TODO: input sanity-check on slot, hash and pubkey
 
 	payload, ok := r.engine.backend.recentPayloads.Get(common.HexToHash(parentHashHex))
 	if !ok {

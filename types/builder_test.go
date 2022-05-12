@@ -62,7 +62,7 @@ func TestExecutionPayloadHeader(t *testing.T) {
 	p, err := h2.HashTreeRoot()
 	require.NoError(t, err)
 	rootHex := fmt.Sprintf("%x", p)
-	require.Equal(t, "83d65af100ef0e0fb789cb249ee6176526687aaf10321c745a90e328930f0066", rootHex)
+	require.Equal(t, "7b7fd346d2b66aab2efce23959d7f90f36ff31a944ba867ae1c2827f85b2fbe5", rootHex)
 }
 
 func TestBlindedBeaconBlock(t *testing.T) {
@@ -109,7 +109,7 @@ func TestBlindedBeaconBlock(t *testing.T) {
 	// Get HashTreeRoot
 	root, err := msg.HashTreeRoot()
 	require.NoError(t, err)
-	require.Equal(t, "d3fd47a86c900f9a20ca4ae64e72fe0286bcb315f6a7d92a3bd009c6dc76b301", fmt.Sprintf("%x", root))
+	require.Equal(t, "b3b6844756cbf0fdd996cb20a1439bfb59a640cdae1604dbd8a81c7c993a6a6b", fmt.Sprintf("%x", root))
 
 	// Marshalling
 	b, err := json.Marshal(msg)
@@ -167,7 +167,7 @@ func TestBlindedBeaconBlock(t *testing.T) {
 	// HashTreeRoot
 	p, err := msg2.HashTreeRoot()
 	require.NoError(t, err)
-	require.Equal(t, "d3fd47a86c900f9a20ca4ae64e72fe0286bcb315f6a7d92a3bd009c6dc76b301", fmt.Sprintf("%x", p))
+	require.Equal(t, "b3b6844756cbf0fdd996cb20a1439bfb59a640cdae1604dbd8a81c7c993a6a6b", fmt.Sprintf("%x", p))
 }
 
 func TestExecutionPayloadREST(t *testing.T) {

@@ -392,14 +392,34 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, at
 	return result.PayloadID, nil
 }
 
-func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId types.PayloadID) (*types.ExecutionPayloadV1, error) {
+func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId types.PayloadID, slot uint64) (*types.ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
 	if c.BuilderAddr != "" {
-		header, err := api.BuilderGetHeader(c.ctx, log, c.sk, c.BuilderAddr, c.mockChain.CurrentHeader().Hash())
+		header, err := api.BuilderGetHeader(c.ctx, log, c.BuilderAddr, slot, c.mockChain.CurrentHeader().Hash(), c.sk.PublicKey().Marshal())
 		if err != nil {
 			return nil, err
 		}
-		payload, err := api.BuilderGetPayload(ctx, log, c.sk, c.BuilderAddr, header)
+
+		signedBlindedBeaconBlock := &types.SignedBlindedBeaconBlock{
+			Message: &types.BlindedBeaconBlock{
+				Slot:          slot,
+				ProposerIndex: 1,
+				Body: &types.BlindedBeaconBlockBody{
+					Eth1Data:               &types.Eth1Data{},
+					SyncAggregate:          &types.SyncAggregate{},
+					ExecutionPayloadHeader: header,
+				},
+			},
+			Signature: types.Signature{},
+		}
+		root, err := signedBlindedBeaconBlock.Message.HashTreeRoot()
+		if err != nil {
+			return nil, err
+		}
+		sig := c.sk.Sign(root[:]).Marshal()
+		signedBlindedBeaconBlock.Signature.FromSlice(sig)
+
+		payload, err := api.BuilderGetPayload(ctx, log, c.sk, c.BuilderAddr, signedBlindedBeaconBlock)
 		if err != nil {
 			return nil, err
 		}
@@ -418,7 +438,7 @@ func (c *ConsensusCmd) mockProposal(log logrus.Ext1FieldLogger, payloadId types.
 	ctx, cancel := context.WithTimeout(c.ctx, time.Second*20)
 	defer cancel()
 
-	payload, err := c.getMockProposal(ctx, log, payloadId)
+	payload, err := c.getMockProposal(ctx, log, payloadId, slot)
 	if err != nil {
 		log.WithError(err).Error("Unable to retrieve proposal payload")
 		maybeExit(c.SlotBound)

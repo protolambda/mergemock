@@ -164,7 +164,7 @@ func TestGetHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, parentHash[:], bid.Data.Message.Header.ParentHash[:], "didn't build on expected parent")
-	ok, err := verifySignature(bid.Data.Message, relay.pk[:], bid.Data.Signature[:])
+	ok, err := types.VerifySignature(bid.Data.Message, relay.pk[:], bid.Data.Signature[:])
 	require.NoError(t, err, "error verifying signature")
 	require.True(t, ok, "bid signature not valid")
 

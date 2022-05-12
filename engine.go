@@ -313,8 +313,7 @@ func (b *EthBackend) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 	if block == nil {
 		return nil, errors.New("unknown block")
 	}
-	response, err := b.rpcMarshalBlock(ctx, block, true, fullTx)
-	return response, err
+	return b.rpcMarshalBlock(ctx, block, true, fullTx)
 }
 
 func (b *EthBackend) GetBlockByNumber(ctx context.Context, number gethRpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
@@ -326,14 +325,12 @@ func (b *EthBackend) GetBlockByNumber(ctx context.Context, number gethRpc.BlockN
 		if block == nil {
 			block = b.chain.Genesis()
 		}
-		response, err := b.rpcMarshalBlock(ctx, block, true, fullTx)
-		return response, err
+		return b.rpcMarshalBlock(ctx, block, true, fullTx)
 	default:
 		block := b.chain.GetBlockByNumber(uint64(number))
 		if block == nil {
 			return nil, errors.New("unknown block")
 		}
-		response, err := b.rpcMarshalBlock(ctx, block, true, fullTx)
-		return response, err
+		return b.rpcMarshalBlock(ctx, block, true, fullTx)
 	}
 }

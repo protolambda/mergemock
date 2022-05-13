@@ -316,5 +316,4 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
 }

@@ -423,6 +423,7 @@ func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1Field
 		if err != nil {
 			return nil, err
 		}
+		c.log.WithField("hash", payload.BlockHash.Hex()).Info("received payload from builder")
 		return payload, err
 	}
 

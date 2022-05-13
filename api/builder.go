@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"mergemock/types"
@@ -14,11 +15,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func BuilderGetHeader(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.SecretKey, builderAddr string, blockHash common.Hash) (*types.ExecutionPayloadHeader, error) {
-	e := log.WithField("blockHash", blockHash)
-	e.Debug("getting header")
-
-	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 1, blockHash.Hex(), sk.PublicKey().Marshal())
+func BuilderGetHeader(ctx context.Context, log logrus.Ext1FieldLogger, builderAddr string, slot uint64, blockHash common.Hash, pubkey []byte) (*types.ExecutionPayloadHeader, error) {
+	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", slot, blockHash.Hex(), pubkey)
 	url := builderAddr + path
 	resp, err := http.Get(url)
 	if err != nil {
@@ -39,37 +37,19 @@ func BuilderGetHeader(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.Se
 		return nil, err
 	}
 
-	e.Debug("Received payload")
+	// Verify signature
+	ok, err := types.VerifySignature(bid.Data.Message, bid.Data.Message.Pubkey[:], bid.Data.Signature[:])
+	if !ok || err != nil {
+		log.WithError(err).Warn("Failed to verify header signature")
+		return nil, errors.New("failed to verify header signature")
+	}
+
+	// TODO: we should eventually add a list of "trusted" builders to cross-reference the builder pubkey against
 	return bid.Data.Message.Header, nil
 }
 
-func BuilderGetPayload(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.SecretKey, builderAddr string, header *types.ExecutionPayloadHeader) (*types.ExecutionPayloadV1, error) {
-	e := log.WithField("block_hash", header.BlockHash)
-	e.Debug("sending payload for execution")
-
-	msg := &types.BlindedBeaconBlock{
-		Slot:          1,
-		ProposerIndex: 1,
-		Body: &types.BlindedBeaconBlockBody{
-			Eth1Data:               &types.Eth1Data{},
-			SyncAggregate:          &types.SyncAggregate{},
-			ExecutionPayloadHeader: header,
-		},
-	}
-
-	// Sign payload
-	root, err := msg.HashTreeRoot()
-	if err != nil {
-		return nil, err
-	}
-	sig := sk.Sign(root[:]).Marshal()
-	var signature types.Signature
-	signature.FromSlice(sig)
-
-	payloadBytes, err := json.Marshal(types.SignedBlindedBeaconBlock{
-		Message:   msg,
-		Signature: signature,
-	})
+func BuilderGetPayload(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.SecretKey, builderAddr string, signedBlindedBeaconBlock *types.SignedBlindedBeaconBlock) (*types.ExecutionPayloadV1, error) {
+	payloadBytes, err := json.Marshal(signedBlindedBeaconBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +80,6 @@ func BuilderGetPayload(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.S
 		return nil, err
 	}
 
-	e.Debug("Received proposed payload")
 	elPayload, err := types.RESTPayloadToELPayload(getPayloadResponse.Data)
 	if err != nil {
 		return nil, err

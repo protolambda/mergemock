@@ -8,6 +8,7 @@ import (
 	"mergemock/rpc"
 	"mergemock/types"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -24,6 +25,8 @@ const (
 )
 
 var (
+	errInvalidSlot      = errors.New("invalid slot")
+	errInvalidHash      = errors.New("invalid hash")
 	errInvalidPubkey    = errors.New("invalid pubkey")
 	errInvalidSignature = errors.New("invalid signature")
 
@@ -140,26 +143,6 @@ func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs st
 	return &RelayBackend{log, engine, pk, sk, types.PublicKey{}}, nil
 }
 
-type hashTreeRoot interface {
-	HashTreeRoot() ([32]byte, error)
-}
-
-func verifySignature(obj hashTreeRoot, pk, s []byte) (bool, error) {
-	msg, err := obj.HashTreeRoot()
-	if err != nil {
-		return false, err
-	}
-	sig, err := bls.SignatureFromBytes(s)
-	if err != nil {
-		return false, err
-	}
-	pubkey, err := bls.PublicKeyFromBytes(pk)
-	if err != nil {
-		return false, err
-	}
-	return sig.Verify(pubkey, msg[:]), nil
-}
-
 func (r *RelayBackend) getRouter() http.Handler {
 	router := mux.NewRouter()
 
@@ -175,7 +158,9 @@ func (r *RelayBackend) getRouter() http.Handler {
 }
 
 func (r *RelayBackend) handleStatus(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{}`)
 }
 
 func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
@@ -195,7 +180,7 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 		return
 	}
 
-	ok, err := verifySignature(payload.Message, payload.Message.Pubkey[:], payload.Signature[:])
+	ok, err := types.VerifySignature(payload.Message, payload.Message.Pubkey[:], payload.Signature[:])
 	if !ok || err != nil {
 		r.log.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
@@ -203,7 +188,9 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 	}
 
 	// TODO: update mapping?
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{}`)
 }
 
 func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request) {
@@ -217,6 +204,21 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		"pubkey":     pubkey,
 	})
 	plog.Info("getHeader")
+
+	if _, err := strconv.ParseInt(slot, 10, 64); err != nil {
+		http.Error(w, errInvalidSlot.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(pubkey) != 98 {
+		http.Error(w, errInvalidPubkey.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(parentHashHex) != 66 {
+		http.Error(w, errInvalidHash.Error(), http.StatusBadRequest)
+		return
+	}
 
 	payload, ok := r.engine.backend.recentPayloads.Get(common.HexToHash(parentHashHex))
 	if !ok {
@@ -281,7 +283,7 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	ok, err := verifySignature(payload.Message, r.latestPubkey[:], payload.Signature[:])
+	ok, err := types.VerifySignature(payload.Message, r.latestPubkey[:], payload.Signature[:])
 	if !ok || err != nil {
 		plog.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
@@ -289,7 +291,6 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 	}
 
 	parentHashHex := payload.Message.Body.ExecutionPayloadHeader.ParentHash.String()
-	fmt.Println("===== getPayload get for parentHash", parentHashHex, "blockHash", payload.Message.Body.ExecutionPayloadHeader.BlockHash)
 	_execPayloadEL, ok := r.engine.backend.recentPayloads.Get(common.HexToHash(parentHashHex))
 	if !ok {
 		plog.Warn("Cannot get unknown payload")
@@ -317,19 +318,3 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 	}
 	w.WriteHeader(http.StatusOK)
 }
-
-// func (r *RelayBackend) GetHeaderV1(ctx context.Context, slot hexutil.Uint64, pubkey hexutil.Bytes, parentHash common.Hash) (*types.SignedBuilderBidV1, error) {
-// 	plog := r.log.WithField("parentHash", parentHash)
-// }
-
-// func (r *RelayBackend) GetPayloadV1(ctx context.Context, block types.BlindedBeaconBlockV1, signature hexutil.Bytes) (*types.ExecutionPayloadV1, error) {
-// 	hash := block.Body.ExecutionPayloadHeader.BlockHash
-// 	plog := r.log.WithField("blockhash", hash)
-// 	payload, ok := r.recentPayloads.Get(hash)
-// 	if !ok {
-// 		plog.Warn("Cannot get unknown payload")
-// 		return nil, &rpc.Error{Err: fmt.Errorf("unknown payload %d", hash), Id: int(api.UnavailablePayload)}
-// 	}
-// 	plog.Info("Consensus client retrieved prepared payload header")
-// 	return payload.(*types.ExecutionPayloadV1), nil
-// }

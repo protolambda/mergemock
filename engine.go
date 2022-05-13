@@ -161,6 +161,10 @@ func (c *EngineCmd) startRPC(ctx context.Context) {
 	if err != nil {
 		c.log.Fatal(err)
 	}
+
+	ethBackend := NewEthBackend(c.backend.mockChain.chain)
+	ethBackend.Register(rpcSrv)
+
 	c.rpcSrv = rpcSrv
 	c.srv = rpc.NewHTTPServer(ctx, c.log, c.rpcSrv, c.ListenAddr, c.Timeout, c.Cors)
 	c.wsSrv = rpc.NewWSServer(ctx, c.log, c.rpcSrv, c.WebsocketAddr, c.jwtSecret, c.Timeout, c.Cors)

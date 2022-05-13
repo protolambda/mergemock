@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"mergemock/api"
@@ -14,12 +13,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	gethRpc "github.com/ethereum/go-ethereum/rpc"
 	lru "github.com/hashicorp/golang-lru"
@@ -273,64 +270,4 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *types.Fo
 	e.recentPayloads.Add(payload.ParentHash, payload)
 
 	return &types.ForkchoiceUpdatedResult{PayloadStatus: types.PayloadStatusV1{Status: types.ExecutionValid, LatestValidHash: &heads.HeadBlockHash}, PayloadID: &id}, nil
-}
-
-type EthBackend struct {
-	chain *core.BlockChain
-}
-
-func NewEthBackend(chain *core.BlockChain) *EthBackend {
-	return &EthBackend{
-		chain: chain,
-	}
-}
-func (b *EthBackend) Register(srv *rpc.Server) error {
-	srv.RegisterName("eth", b)
-	return node.RegisterApis([]rpc.API{
-		{
-			Namespace:     "eth",
-			Version:       "1.0",
-			Service:       b,
-			Public:        true,
-			Authenticated: false,
-		},
-	}, []string{"eth"}, srv, false)
-}
-
-func (b *EthBackend) rpcMarshalBlock(ctx context.Context, block *ethTypes.Block, inclTx bool, fullTx bool) (map[string]interface{}, error) {
-	fields, err := types.RPCMarshalBlock(block, inclTx, fullTx, b.chain.Config())
-	if err != nil {
-		return nil, err
-	}
-	if inclTx {
-		fields["totalDifficulty"] = (*hexutil.Big)(b.chain.GetTd(block.Hash(), block.NumberU64()))
-	}
-	return fields, err
-}
-
-func (b *EthBackend) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (map[string]interface{}, error) {
-	block := b.chain.GetBlockByHash(hash)
-	if block == nil {
-		return nil, errors.New("unknown block")
-	}
-	return b.rpcMarshalBlock(ctx, block, true, fullTx)
-}
-
-func (b *EthBackend) GetBlockByNumber(ctx context.Context, number gethRpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
-	switch number {
-	case gethRpc.PendingBlockNumber:
-		return nil, errors.New("not implemented")
-	case gethRpc.LatestBlockNumber:
-		block := b.chain.CurrentBlock()
-		if block == nil {
-			block = b.chain.Genesis()
-		}
-		return b.rpcMarshalBlock(ctx, block, true, fullTx)
-	default:
-		block := b.chain.GetBlockByNumber(uint64(number))
-		if block == nil {
-			return nil, errors.New("unknown block")
-		}
-		return b.rpcMarshalBlock(ctx, block, true, fullTx)
-	}
 }

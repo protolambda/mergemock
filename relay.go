@@ -8,6 +8,7 @@ import (
 	"mergemock/rpc"
 	"mergemock/types"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -24,6 +25,8 @@ const (
 )
 
 var (
+	errInvalidSlot      = errors.New("invalid slot")
+	errInvalidHash      = errors.New("invalid hash")
 	errInvalidPubkey    = errors.New("invalid pubkey")
 	errInvalidSignature = errors.New("invalid signature")
 
@@ -202,7 +205,20 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 	})
 	plog.Info("getHeader")
 
-	// TODO: input sanity-check on slot, hash and pubkey
+	if _, err := strconv.ParseInt(slot, 10, 64); err != nil {
+		http.Error(w, errInvalidSlot.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(pubkey) != 98 {
+		http.Error(w, errInvalidPubkey.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(parentHashHex) != 66 {
+		http.Error(w, errInvalidHash.Error(), http.StatusBadRequest)
+		return
+	}
 
 	payload, ok := r.engine.backend.recentPayloads.Get(common.HexToHash(parentHashHex))
 	if !ok {

@@ -157,7 +157,7 @@ func TestGetHeader(t *testing.T) {
 
 	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", 0, parentHash.Hex(), pk)
 	rr := relay.testRequest(t, "GET", path, nil)
-	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
 	bid := new(types.GetHeaderResponse)
 	err = json.Unmarshal(rr.Body.Bytes(), bid)

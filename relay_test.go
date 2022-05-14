@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mergemock/api"
 	"mergemock/types"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/state"
+	ethTypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/prysmaticlabs/prysm/shared/bls/blst"
 	bls "github.com/prysmaticlabs/prysm/shared/bls/common"
 	"github.com/sirupsen/logrus"
@@ -250,4 +255,37 @@ func TestGetPayload(t *testing.T) {
 	err = json.Unmarshal(rr.Body.Bytes(), getPayloadResponse)
 	require.NoError(t, err)
 	require.Equal(t, bid.Data.Message.Header.BlockHash, getPayloadResponse.Data.BlockHash)
+}
+
+func TestExecutionPayloadTransformations(t *testing.T) {
+	// Test: block -> EL payload -> CL payload -> EL payload -> block -> compare blockhash
+	relay := newTestRelay(t)
+	relay.engine.Run(context.Background())
+	parent := relay.engine.mockChain().CurrentHeader()
+
+	txsCreator := TransactionsCreator{nil, func(config *params.ChainConfig, bc core.ChainContext,
+		statedb *state.StateDB, header *ethTypes.Header, cfg vm.Config, accounts []TestAccount) []*ethTypes.Transaction {
+		return nil // TODO: create some transactions
+	}}
+
+	// Create a block
+	block1, err := relay.engine.mockChain().AddNewBlock(parent.Hash(), common.Address{0x02}, 12345, 23456, txsCreator, common.Hash{0x04}, []byte("hello"), nil, false)
+	require.NoError(t, err)
+
+	// Transform to EL payload
+	payloadEl, err := api.BlockToPayload(block1)
+	require.NoError(t, err)
+
+	// Transform EL payload to CL payload
+	payloadCl, err := types.ELPayloadToRESTPayload(payloadEl)
+	require.NoError(t, err)
+
+	// Transform CL payload back to EL payload
+	payloadEl2, err := types.RESTPayloadToELPayload(payloadCl)
+	require.NoError(t, err)
+
+	// Create a block from the 'new' EL payload and ensure correctness
+	block2, err := relay.engine.mockChain().ProcessPayload(payloadEl2)
+	require.NoError(t, err)
+	require.Equal(t, block1.Hash(), block2.Hash())
 }

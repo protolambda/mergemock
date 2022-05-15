@@ -7,18 +7,11 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
-type Signature [96]byte
-type PublicKey [48]byte
-type Address [20]byte
-type Hash [32]byte
-type Root Hash
-type CommitteeBits [64]byte
-type Bloom [256]byte
-type U256Str Hash // encodes/decodes to string, not hex
-
 var (
 	ErrLength = fmt.Errorf("incorrect byte length")
 )
+
+type Signature [96]byte
 
 func (s Signature) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(s[:]).MarshalText()
@@ -59,6 +52,8 @@ func (s *Signature) FromSlice(x []byte) {
 	copy(s[:], x)
 }
 
+type PublicKey [48]byte
+
 func (p PublicKey) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(p[:]).MarshalText()
 }
@@ -91,6 +86,8 @@ func (p PublicKey) String() string {
 func (p *PublicKey) FromSlice(x []byte) {
 	copy(p[:], x)
 }
+
+type Address [20]byte
 
 func (a Address) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(a[:]).MarshalText()
@@ -125,6 +122,9 @@ func (a *Address) FromSlice(x []byte) {
 	copy(a[:], x)
 }
 
+type Hash [32]byte
+type Root = Hash
+
 func (h Hash) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(h[:]).MarshalText()
 }
@@ -158,37 +158,7 @@ func (h Hash) String() string {
 	return hexutil.Bytes(h[:]).String()
 }
 
-func (r Root) MarshalText() ([]byte, error) {
-	return hexutil.Bytes(r[:]).MarshalText()
-}
-
-func (r *Root) UnmarshalJSON(input []byte) error {
-	b := hexutil.Bytes(r[:])
-	b.UnmarshalJSON(input)
-	if len(b) != 32 {
-		return ErrLength
-	}
-	r.FromSlice(b)
-	return nil
-}
-
-func (r *Root) UnmarshalText(input []byte) error {
-	b := hexutil.Bytes(r[:])
-	b.UnmarshalText(input)
-	if len(b) != 32 {
-		return ErrLength
-	}
-	r.FromSlice(b)
-	return nil
-}
-
-func (r *Root) FromSlice(x []byte) {
-	copy(r[:], x)
-}
-
-func (r Root) String() string {
-	return hexutil.Bytes(r[:]).String()
-}
+type CommitteeBits [64]byte
 
 func (c CommitteeBits) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(c[:]).MarshalText()
@@ -223,6 +193,8 @@ func (c *CommitteeBits) FromSlice(x []byte) {
 	copy(c[:], x)
 }
 
+type Bloom [256]byte
+
 func (b Bloom) MarshalText() ([]byte, error) {
 	return hexutil.Bytes(b[:]).MarshalText()
 }
@@ -254,6 +226,8 @@ func (b Bloom) String() string {
 func (b *Bloom) FromSlice(x []byte) {
 	copy(b[:], x)
 }
+
+type U256Str Hash // encodes/decodes to string, not hex
 
 func (n U256Str) MarshalText() ([]byte, error) {
 	return []byte(new(big.Int).SetBytes(n[:]).String()), nil

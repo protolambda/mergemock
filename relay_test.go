@@ -229,7 +229,7 @@ func TestGetPayload(t *testing.T) {
 	}
 
 	// Sign payload
-	root, err := types.ComputeSigningRoot(msg, types.ComputeDomain(types.DomainType(0), version.Bellatrix, &relay.genesisValidatorsRoot))
+	root, err := types.ComputeSigningRoot(msg, types.ComputeDomain(types.DomainTypeBeaconProposer, version.Bellatrix, &relay.genesisValidatorsRoot))
 	require.NoError(t, err)
 	sig := sk.Sign(root[:]).Marshal()
 	var signature types.Signature

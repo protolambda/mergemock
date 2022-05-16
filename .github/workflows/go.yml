@@ -43,3 +43,27 @@ jobs:
 
       # - name: Ensure gencodec and sszgen are producing matching files
         # run: make generate && git diff-index --quiet HEAD
+
+  consensus:
+    name: Consensus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v2
+        with:
+          go-version: ^1.18
+        id: go
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: make build
+
+      - name: Download genesis.json and create jwt.hex
+        run: wget https://gist.githubusercontent.com/lightclient/799c727e826483a2804fc5013d0d3e3d/raw/2e8824fa8d9d9b040f351b86b75c66868fb9b115/genesis.json && echo -n 'a21a16ec22a940990922220e4ab5bf4c2310f55622220e4ab5bf4c2310f55656' > jwt.hex
+
+      - name: Run consensus tests
+        run: |
+          ./mergemock relay &
+          ./mergemock consensus --slot-time=4s --builder=http://localhost:28545 --slot-bound 10

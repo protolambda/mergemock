@@ -30,7 +30,7 @@ type testRelayBackend struct {
 }
 
 func newTestRelay(t *testing.T) *testRelayBackend {
-	relay, err := NewRelayBackend(logrus.New(), "127.0.0.1:38551", "127.0.0.1:38552")
+	relay, err := NewRelayBackend(logrus.New(), "127.0.0.1:38551", "127.0.0.1:38552", "0x1234000000000000000000000000000000000000000000000000000000000000")
 	if err != nil {
 		t.Fatal("unable to create relay")
 	}
@@ -229,7 +229,7 @@ func TestGetPayload(t *testing.T) {
 	}
 
 	// Sign payload
-	root, err := types.ComputeSigningRoot(msg, types.ComputeDomain(types.DomainType(0), version.Bellatrix, &types.GenesisValidatorsRoot))
+	root, err := types.ComputeSigningRoot(msg, types.ComputeDomain(types.DomainType(0), version.Bellatrix, &relay.genesisValidatorsRoot))
 	require.NoError(t, err)
 	sig := sk.Sign(root[:]).Marshal()
 	var signature types.Signature

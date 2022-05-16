@@ -3,7 +3,6 @@ package types
 import (
 	"encoding/binary"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/prysmaticlabs/prysm/crypto/bls"
 )
 
@@ -11,8 +10,7 @@ type Domain [32]byte
 type DomainType uint32
 
 var (
-	DomainBuilder         Domain
-	GenesisValidatorsRoot Root
+	DomainBuilder Domain
 )
 
 const (
@@ -22,7 +20,6 @@ const (
 
 func init() {
 	DomainBuilder = ComputeApplicationDomain(DomainTypeAppBuilder)
-	GenesisValidatorsRoot = [32]byte(common.HexToHash("0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"))
 }
 
 type SigningData struct {

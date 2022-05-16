@@ -19,8 +19,8 @@ import (
 	ethTypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/prysmaticlabs/prysm/shared/bls/blst"
-	bls "github.com/prysmaticlabs/prysm/shared/bls/common"
+	"github.com/prysmaticlabs/prysm/crypto/bls"
+	"github.com/prysmaticlabs/prysm/runtime/version"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +60,7 @@ func (mr *testRelayBackend) testRequest(t *testing.T, method string, path string
 }
 
 func newKeypair(t *testing.T) (pubkey []byte, privkey bls.SecretKey) {
-	sk, err := blst.RandKey()
+	sk, err := bls.RandKey()
 	if err != nil {
 		t.Fatal("unable to generate bls key pair", err)
 	}
@@ -105,13 +105,13 @@ func TestValidatorRegistration(t *testing.T) {
 	pubkey.FromSlice(pk)
 	require.Equal(t, pk[:], pubkey[:])
 
-	msg := types.RegisterValidatorRequestMessage{
+	msg := &types.RegisterValidatorRequestMessage{
 		FeeRecipient: types.Address{0x42},
 		GasLimit:     15_000_000,
 		Timestamp:    uint64(time.Now().Unix()),
 		Pubkey:       pubkey,
 	}
-	root, err := msg.HashTreeRoot()
+	root, err := types.ComputeSigningRoot(msg, types.DomainBuilder)
 	require.NoError(t, err)
 
 	// Success
@@ -121,7 +121,7 @@ func TestValidatorRegistration(t *testing.T) {
 	require.Equal(t, sig[:], signature[:])
 
 	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.SignedValidatorRegistration{
-		Message:   &msg,
+		Message:   msg,
 		Signature: signature,
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -129,7 +129,7 @@ func TestValidatorRegistration(t *testing.T) {
 	// Invalid signature
 	signature[len(signature)-1] = 0x00
 	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.SignedValidatorRegistration{
-		Message:   &msg,
+		Message:   msg,
 		Signature: signature,
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
@@ -169,7 +169,7 @@ func TestGetHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, parentHash[:], bid.Data.Message.Header.ParentHash[:], "didn't build on expected parent")
-	ok, err := types.VerifySignature(bid.Data.Message, relay.pk[:], bid.Data.Signature[:])
+	ok, err := types.VerifySignature(bid.Data.Message, types.DomainBuilder, relay.pk[:], bid.Data.Signature[:])
 	require.NoError(t, err, "error verifying signature")
 	require.True(t, ok, "bid signature not valid")
 
@@ -229,7 +229,7 @@ func TestGetPayload(t *testing.T) {
 	}
 
 	// Sign payload
-	root, err := msg.HashTreeRoot()
+	root, err := types.ComputeSigningRoot(msg, types.ComputeDomain(types.DomainType(0), version.Bellatrix, &types.GenesisValidatorsRoot))
 	require.NoError(t, err)
 	sig := sk.Sign(root[:]).Marshal()
 	var signature types.Signature

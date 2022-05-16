@@ -13,7 +13,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
-	"github.com/prysmaticlabs/prysm/shared/bls"
+	"github.com/prysmaticlabs/prysm/crypto/bls"
+	"github.com/prysmaticlabs/prysm/runtime/version"
 	"github.com/sirupsen/logrus"
 )
 
@@ -180,7 +181,7 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 		return
 	}
 
-	ok, err := types.VerifySignature(payload.Message, payload.Message.Pubkey[:], payload.Signature[:])
+	ok, err := types.VerifySignature(payload.Message, types.DomainBuilder, payload.Message.Pubkey[:], payload.Signature[:])
 	if !ok || err != nil {
 		r.log.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
@@ -241,10 +242,10 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		Value:  [32]byte{0x1},
 		Pubkey: r.pk,
 	}
-	msg, err := bid.HashTreeRoot()
+	msg, err := types.ComputeSigningRoot(&bid, types.DomainBuilder)
 	if err != nil {
-		plog.Warn("cannot compute hash tree root")
-		http.Error(w, "cannot compute hash tree root", http.StatusBadRequest)
+		plog.Warn("cannot compute signing root")
+		http.Error(w, "cannot compute signing root", http.StatusBadRequest)
 		return
 	}
 	var sig types.Signature
@@ -283,7 +284,8 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	ok, err := types.VerifySignature(payload.Message, r.latestPubkey[:], payload.Signature[:])
+	domain := types.ComputeDomain(types.DomainTypeBeaconProposer, version.Bellatrix, &types.GenesisValidatorsRoot)
+	ok, err := types.VerifySignature(payload.Message, domain, r.latestPubkey[:], payload.Signature[:])
 	if !ok || err != nil {
 		plog.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)

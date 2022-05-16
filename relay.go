@@ -13,7 +13,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
-	"github.com/prysmaticlabs/prysm/shared/bls"
+	"github.com/prysmaticlabs/prysm/crypto/bls"
+	"github.com/prysmaticlabs/prysm/runtime/version"
 	"github.com/sirupsen/logrus"
 )
 
@@ -46,6 +47,8 @@ type RelayCmd struct {
 	Timeout rpc.Timeout `ask:".timeout" help:"Configure timeouts of the HTTP servers"`
 	LogCmd  `ask:".log" help:"Change logger configuration"`
 
+	GenesisValidatorsRoot string `ask:"--genesis-validators-root" help:"Root of genesis validators"`
+
 	close chan struct{}
 	log   *logrus.Logger
 	ctx   context.Context
@@ -54,9 +57,10 @@ type RelayCmd struct {
 
 func (r *RelayCmd) Default() {
 	r.ListenAddr = "127.0.0.1:28545"
-
 	r.EngineListenAddr = "127.0.0.1:8551"
 	r.EngineListenAddrWs = "127.0.0.1:8552"
+
+	r.GenesisValidatorsRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 	r.Timeout.Read = 30 * time.Second
 	r.Timeout.ReadHeader = 10 * time.Second
@@ -75,7 +79,7 @@ func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 		// Logger wasn't initialized so we can't log. Error out instead.
 		return err
 	}
-	backend, err := NewRelayBackend(r.log, r.EngineListenAddr, r.EngineListenAddrWs)
+	backend, err := NewRelayBackend(r.log, r.EngineListenAddr, r.EngineListenAddrWs, r.GenesisValidatorsRoot)
 	if err != nil {
 		r.log.WithField("err", err).Fatal("Unable to initialize backend")
 	}
@@ -127,10 +131,12 @@ type RelayBackend struct {
 	pk     types.PublicKey
 	sk     bls.SecretKey
 
+	genesisValidatorsRoot types.Root
+
 	latestPubkey types.PublicKey // cache for pubkey from latest getHeader call
 }
 
-func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs string) (*RelayBackend, error) {
+func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs, genesisValidatorsRoot string) (*RelayBackend, error) {
 	engine := &EngineCmd{}
 	engine.Default()
 	engine.LogCmd.Default()
@@ -140,7 +146,7 @@ func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs st
 	sk, _ := bls.RandKey()
 	var pk types.PublicKey
 	copy(pk[:], sk.PublicKey().Marshal())
-	return &RelayBackend{log, engine, pk, sk, types.PublicKey{}}, nil
+	return &RelayBackend{log, engine, pk, sk, types.Root(common.HexToHash(genesisValidatorsRoot)), types.PublicKey{}}, nil
 }
 
 func (r *RelayBackend) getRouter() http.Handler {
@@ -180,7 +186,7 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 		return
 	}
 
-	ok, err := types.VerifySignature(payload.Message, payload.Message.Pubkey[:], payload.Signature[:])
+	ok, err := types.VerifySignature(payload.Message, types.DomainBuilder, payload.Message.Pubkey[:], payload.Signature[:])
 	if !ok || err != nil {
 		r.log.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
@@ -241,10 +247,10 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		Value:  [32]byte{0x1},
 		Pubkey: r.pk,
 	}
-	msg, err := bid.HashTreeRoot()
+	msg, err := types.ComputeSigningRoot(&bid, types.DomainBuilder)
 	if err != nil {
-		plog.Warn("cannot compute hash tree root")
-		http.Error(w, "cannot compute hash tree root", http.StatusBadRequest)
+		plog.Warn("cannot compute signing root")
+		http.Error(w, "cannot compute signing root", http.StatusBadRequest)
 		return
 	}
 	var sig types.Signature
@@ -283,7 +289,8 @@ func (r *RelayBackend) handleGetPayload(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	ok, err := types.VerifySignature(payload.Message, r.latestPubkey[:], payload.Signature[:])
+	domain := types.ComputeDomain(types.DomainTypeBeaconProposer, version.Bellatrix, &r.genesisValidatorsRoot)
+	ok, err := types.VerifySignature(payload.Message, domain, r.latestPubkey[:], payload.Signature[:])
 	if !ok || err != nil {
 		plog.WithError(err).Error("error verifying signature")
 		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)

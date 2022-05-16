@@ -11,7 +11,7 @@ import (
 	"net/http"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/prysmaticlabs/prysm/shared/bls"
+	"github.com/prysmaticlabs/prysm/crypto/bls"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,7 +38,7 @@ func BuilderGetHeader(ctx context.Context, log logrus.Ext1FieldLogger, builderAd
 	}
 
 	// Verify signature
-	ok, err := types.VerifySignature(bid.Data.Message, bid.Data.Message.Pubkey[:], bid.Data.Signature[:])
+	ok, err := types.VerifySignature(bid.Data.Message, types.DomainBuilder, bid.Data.Message.Pubkey[:], bid.Data.Signature[:])
 	if !ok || err != nil {
 		log.WithError(err).Warn("Failed to verify header signature")
 		return nil, errors.New("failed to verify header signature")

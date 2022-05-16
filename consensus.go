@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/prysmaticlabs/prysm/crypto/bls"
 	"github.com/prysmaticlabs/prysm/crypto/bls/blst"
+	"github.com/prysmaticlabs/prysm/runtime/version"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,6 +46,8 @@ type ConsensusCmd struct {
 	Enode         string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
 	SlotBound     uint64 `ask:"--slot-bound" help:"Terminate after the specified number of slots."`
 
+	GenesisValidatorsRoot string `ask:"--genesis-validators-root" help:"Root of genesis validators"`
+
 	// embed consensus behaviors
 	ConsensusBehavior `ask:"."`
 
@@ -59,6 +62,8 @@ type ConsensusCmd struct {
 	engine    *rpc.Client
 	jwtSecret []byte
 	db        ethdb.Database
+
+	genesisValidatorsRoot types.Root
 
 	ethashCfg ethash.Config
 
@@ -76,6 +81,7 @@ func (c *ConsensusCmd) Default() {
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
+	c.GenesisValidatorsRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
 }
 
 func (c *ConsensusCmd) Help() string {
@@ -97,6 +103,8 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 	}
 	c.jwtSecret = jwt
 	log.WithField("val", common.Bytes2Hex(c.jwtSecret[:])).Info("Loaded JWT secret")
+
+	c.genesisValidatorsRoot = types.Root(common.HexToHash(c.GenesisValidatorsRoot))
 
 	// Connect to execution client engine api
 	client, err := rpc.DialContext(ctx, c.EngineAddr, c.jwtSecret)
@@ -412,7 +420,8 @@ func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1Field
 			},
 			Signature: types.Signature{},
 		}
-		root, err := signedBlindedBeaconBlock.Message.HashTreeRoot()
+		domain := types.ComputeDomain(types.DomainTypeBeaconProposer, version.Bellatrix, &c.genesisValidatorsRoot)
+		root, err := types.ComputeSigningRoot(signedBlindedBeaconBlock.Message, domain)
 		if err != nil {
 			return nil, err
 		}

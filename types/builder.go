@@ -6,7 +6,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/trie"
 )
 
 // Generate SSZ encoding: make generate-ssz
@@ -198,8 +197,13 @@ type GetPayloadResponse struct {
 	Data    *ExecutionPayloadREST `json:"data"`
 }
 
+type transactions struct {
+	Transactions [][]byte `ssz-max:"1048576,1073741824"`
+}
+
 func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, error) {
-	txs, err := decodeTransactions(p.Transactions)
+	txs := transactions{Transactions: p.Transactions}
+	txroot, err := txs.HashTreeRoot()
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +221,7 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, err
 		ExtraData:        hexutil.Bytes(p.ExtraData),
 		BaseFeePerGas:    [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
 		BlockHash:        [32]byte(p.BlockHash),
-		TransactionsRoot: [32]byte(types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil))),
+		TransactionsRoot: [32]byte(txroot),
 	}, nil
 }
 

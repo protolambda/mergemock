@@ -264,3 +264,11 @@ func TestExecutionPayloadV1(t *testing.T) {
 	// Make sure everything is still the same
 	require.Equal(t, msgEl1, msgEl2)
 }
+
+func TestMerkelizeTxs(t *testing.T) {
+	txs := transactions{}
+	root, err := txs.HashTreeRoot()
+	require.NoError(t, err)
+	expected := "7ffe241ea60187fdb0187bfa22de35d1f9bed7ab061d9401fd47e34a54fbede1"
+	require.Equal(t, expected, common.Bytes2Hex(root[:]))
+}

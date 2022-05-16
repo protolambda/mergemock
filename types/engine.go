@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
-type PayloadID beacon.PayloadID
+type PayloadID = beacon.PayloadID
 
 //go:generate go run github.com/fjl/gencodec -type PayloadAttributesV1 -field-override payloadAttributesMarshalling -out gen_blockparams.go
 type PayloadAttributesV1 struct {

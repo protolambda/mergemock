@@ -15,7 +15,7 @@ var (
 
 const (
 	DomainTypeBeaconProposer DomainType = 0x00000000
-	DomainTypeAppBuilder     DomainType = 0x00000001
+	DomainTypeAppBuilder     DomainType = 16777216
 )
 
 func init() {

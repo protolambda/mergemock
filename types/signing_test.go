@@ -23,12 +23,11 @@ func TestVerifySignature(t *testing.T) {
 		Timestamp:    1652369368,
 		Pubkey:       PublicKey{0x0d},
 	}
-	domain := ComputeApplicationDomain(0x01)
-	root, err := ComputeSigningRoot(msg, domain)
+	root, err := ComputeSigningRoot(msg, DomainBuilder)
 	require.NoError(t, err)
 
 	sig := sk.Sign(root[:])
-	ok, err := VerifySignature(msg, domain, pk, sig.Marshal())
+	ok, err := VerifySignature(msg, DomainBuilder, pk, sig.Marshal())
 	require.NoError(t, err)
 	require.True(t, ok)
 }

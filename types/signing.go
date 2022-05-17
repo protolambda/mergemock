@@ -1,21 +1,17 @@
 package types
 
 import (
-	"encoding/binary"
-
 	"github.com/prysmaticlabs/prysm/crypto/bls"
 )
 
 type Domain [32]byte
-type DomainType uint32
+type DomainType [4]byte
 
 var (
 	DomainBuilder Domain
-)
 
-const (
-	DomainTypeBeaconProposer DomainType = 0x00000000
-	DomainTypeAppBuilder     DomainType = 0x00000001
+	DomainTypeBeaconProposer DomainType = DomainType{0x00, 0x00, 0x00, 0x00}
+	DomainTypeAppBuilder     DomainType = DomainType{0x00, 0x00, 0x00, 0x01}
 )
 
 func init() {
@@ -47,7 +43,7 @@ func ComputeDomain(dt DomainType, forkVersion uint32, genesisValidatorsRoot *Roo
 	}).HashTreeRoot()
 
 	var domain [32]byte
-	binary.LittleEndian.PutUint32(domain[0:4], uint32(dt))
+	copy(domain[0:4], dt[:])
 	copy(domain[4:], forkDataRoot[0:28])
 
 	return domain

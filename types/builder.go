@@ -70,7 +70,7 @@ type AttesterSlashing struct {
 
 // Attestation https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#attestation
 type Attestation struct {
-	AggregationBits hexutil.Bytes    `json:"aggregation_bits" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
+	AggregationBits hexutil.Bytes    `json:"aggregation_bits" ssz:"bitlist" ssz-max:"2048"` // MAX_VALIDATORS_PER_COMMITTEE
 	Data            *AttestationData `json:"data"`
 	Signature       Signature        `json:"signature" ssz-size:"96"`
 }
@@ -139,7 +139,7 @@ type BlindedBeaconBlockBody struct {
 	ProposerSlashings      []*ProposerSlashing     `json:"proposer_slashings" ssz-max:"16"`
 	AttesterSlashings      []*AttesterSlashing     `json:"attester_slashings" ssz-max:"2"`
 	Attestations           []*Attestation          `json:"attestations" ssz-max:"128"`
-	Deposits               []*Deposit              `json:"deposits" ssz-max:"4"`
+	Deposits               []*Deposit              `json:"deposits" ssz-max:"16"`
 	VoluntaryExits         []*VoluntaryExit        `json:"voluntary_exits" ssz-max:"16"`
 	SyncAggregate          *SyncAggregate          `json:"sync_aggregate"`
 	ExecutionPayloadHeader *ExecutionPayloadHeader `json:"execution_payload_header"`

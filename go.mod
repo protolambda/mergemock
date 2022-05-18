@@ -2,12 +2,9 @@ module mergemock
 
 go 1.18
 
-replace github.com/ethereum/go-ethereum => github.com/MariusVanDerWijden/go-ethereum v1.8.22-0.20220316185917-87d642df3e87
-
 require (
 	github.com/StackExchange/wmi v0.0.0-20210224194228-fe8f1750fd46 // indirect
 	github.com/VictoriaMetrics/fastcache v1.6.0 // indirect
-	github.com/btcsuite/btcd v0.22.0-beta // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deckarep/golang-set v1.8.0 // indirect
@@ -54,7 +51,9 @@ require (
 require (
 	github.com/allegro/bigcache v1.2.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.1.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/garslo/gogen v0.0.0-20170306192744-1d203ffc1f61 // indirect
 	github.com/go-kit/kit v0.10.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect

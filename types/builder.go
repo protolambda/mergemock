@@ -9,6 +9,8 @@ import (
 )
 
 // Generate SSZ encoding: make generate-ssz
+// TODO: figure out why sszgen puts hexutil in code gen despite it not being used
+// TODO: figure out why sszgen has issue with type defs of byte slices (tracking: https://github.com/ferranbt/fastssz/issues/75)
 
 // Eth1Data https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#eth1data
 type Eth1Data struct {
@@ -105,8 +107,8 @@ type ExecutionPayloadHeader struct {
 	GasLimit         uint64        `json:"gas_limit,string"`
 	GasUsed          uint64        `json:"gas_used,string"`
 	Timestamp        uint64        `json:"timestamp,string"`
-	ExtraData        hexutil.Bytes `json:"extra_data" ssz-size:"32"`
-	BaseFeePerGas    U256Str       `json:"base_fee_per_gas" ssz-max:"32"`
+	ExtraData        hexutil.Bytes `json:"extra_data" ssz-max:"32"`
+	BaseFeePerGas    U256Str       `json:"base_fee_per_gas" ssz-size:"32"`
 	BlockHash        Hash          `json:"block_hash" ssz-size:"32"`
 	TransactionsRoot Root          `json:"transactions_root" ssz-size:"32"`
 }
@@ -123,10 +125,10 @@ type ExecutionPayloadREST struct {
 	GasLimit      uint64          `json:"gas_limit,string"`
 	GasUsed       uint64          `json:"gas_used,string"`
 	Timestamp     uint64          `json:"timestamp,string"`
-	ExtraData     hexutil.Bytes   `json:"extra_data" ssz-size:"32"`
+	ExtraData     hexutil.Bytes   `json:"extra_data" ssz-max:"32"`
 	BaseFeePerGas U256Str         `json:"base_fee_per_gas" ssz-max:"32"`
 	BlockHash     Hash            `json:"block_hash" ssz-size:"32"`
-	Transactions  []hexutil.Bytes `json:"transactions"` // ssz-size/ssz-max:"2048"?
+	Transactions  []hexutil.Bytes `json:"transactions" ssz-max:"1048576,1073741824" ssz-size:"?,?"`
 }
 
 // BlindedBeaconBlockBody https://github.com/ethereum/beacon-APIs/blob/master/types/bellatrix/block.yaml#L65
@@ -198,7 +200,7 @@ type GetPayloadResponse struct {
 }
 
 type transactions struct {
-	Transactions [][]byte `ssz-max:"1048576,1073741824"`
+	Transactions [][]byte `ssz-max:"1048576,1073741824" ssz-size:"?,?"`
 }
 
 func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, error) {
@@ -269,7 +271,7 @@ func RESTPayloadToELPayload(p *ExecutionPayloadREST) (*ExecutionPayloadV1, error
 		GasLimit:      p.GasLimit,
 		GasUsed:       p.GasUsed,
 		Timestamp:     p.Timestamp,
-		ExtraData:     []byte(p.ExtraData[:]),
+		ExtraData:     hexutil.Bytes(p.ExtraData),
 		BaseFeePerGas: baseFeePerGas,
 		BlockHash:     common.Hash(p.BlockHash),
 		Transactions:  txs,

@@ -229,8 +229,16 @@ func (b *Bloom) FromSlice(x []byte) {
 
 type U256Str Hash // encodes/decodes to string, not hex
 
+func reverse(a []byte) []byte {
+	for i := len(a)/2 - 1; i >= 0; i-- {
+		opp := len(a) - 1 - i
+		a[i], a[opp] = a[opp], a[i]
+	}
+	return a
+}
+
 func (n U256Str) MarshalText() ([]byte, error) {
-	return []byte(new(big.Int).SetBytes(n[:]).String()), nil
+	return []byte(new(big.Int).SetBytes(reverse(n[:])).String()), nil
 }
 
 func (n *U256Str) UnmarshalJSON(input []byte) error {
@@ -242,7 +250,7 @@ func (n *U256Str) UnmarshalJSON(input []byte) error {
 	if err != nil {
 		return err
 	}
-	copy(n[:], x.FillBytes(n[:]))
+	copy(n[:], reverse(x.FillBytes(n[:])))
 	return nil
 }
 
@@ -252,13 +260,13 @@ func (n *U256Str) UnmarshalText(input []byte) error {
 	if err != nil {
 		return err
 	}
-	copy(n[:], x.FillBytes(n[:]))
+	copy(n[:], reverse(x.FillBytes(n[:])))
 	return nil
 
 }
 
 func (n *U256Str) String() string {
-	return new(big.Int).SetBytes(n[:]).String()
+	return new(big.Int).SetBytes(reverse(n[:])).String()
 }
 
 func (n *U256Str) FromSlice(x []byte) {

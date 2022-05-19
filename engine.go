@@ -239,7 +239,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *types.Fo
 
 	plog := e.log.WithField("payload_id", id)
 	plog.WithFields(logrus.Fields{
-		"timestamp":              attributes.Timestamp,
+		"timestamp":               attributes.Timestamp,
 		"prev_randao":             attributes.PrevRandao.String(),
 		"suggested_fee_recipient": attributes.SuggestedFeeRecipient.String(),
 	}).Info("Preparing new payload")

@@ -229,15 +229,18 @@ func (b *Bloom) FromSlice(x []byte) {
 
 type U256Str Hash // encodes/decodes to string, not hex
 
-func reverse(a []byte) []byte {
-	for i := len(a)/2 - 1; i >= 0; i-- {
-		opp := len(a) - 1 - i
-		a[i], a[opp] = a[opp], a[i]
+func reverse(src []byte) []byte {
+	dst := make([]byte, len(src))
+	copy(dst, src)
+	for i := len(dst)/2 - 1; i >= 0; i-- {
+		opp := len(dst) - 1 - i
+		dst[i], dst[opp] = dst[opp], dst[i]
 	}
-	return a
+	return dst
 }
 
 func (n U256Str) MarshalText() ([]byte, error) {
+	fmt.Println(n[:], "marshal")
 	return []byte(new(big.Int).SetBytes(reverse(n[:])).String()), nil
 }
 

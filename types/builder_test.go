@@ -297,5 +297,6 @@ func TestMerkelizePayload(t *testing.T) {
 
 	// Verify block htr
 	root, err = block.HashTreeRoot()
+	require.NoError(t, err)
 	require.Equal(t, "87b57a69321ec21e8a83a39f2f0f885a3be9bbddb80794b3b2700c3cf8230aa1", common.Bytes2Hex(root[:]))
 }

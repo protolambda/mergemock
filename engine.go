@@ -243,7 +243,7 @@ func (e *EngineBackend) ForkchoiceUpdatedV1(ctx context.Context, heads *types.Fo
 		"prev_randao":             attributes.PrevRandao.String(),
 		"suggested_fee_recipient": attributes.SuggestedFeeRecipient.String(),
 	}).Info("Preparing new payload")
-	
+
 	gasLimit := e.mockChain.gspec.GasLimit
 	txsCreator := TransactionsCreator{nil, func(config *params.ChainConfig, bc core.ChainContext,
 		statedb *state.StateDB, header *ethTypes.Header, cfg vm.Config, accounts []TestAccount) []*ethTypes.Transaction {

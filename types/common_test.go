@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/stretchr/testify/require"
 )
@@ -30,8 +31,7 @@ func TestJSONSerialization(t *testing.T) {
 }
 
 func TestU256Str(t *testing.T) {
-	a := U256Str{}
-	a[31] = 0x01
+	a := U256Str(common.HexToHash("0100000000000000000000000000000000000000000000000000000000000000"))
 	require.Equal(t, "1", a.String())
 
 	b, err := json.Marshal(a)

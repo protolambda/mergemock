@@ -240,7 +240,6 @@ func reverse(src []byte) []byte {
 }
 
 func (n U256Str) MarshalText() ([]byte, error) {
-	fmt.Println(n[:], "marshal")
 	return []byte(new(big.Int).SetBytes(reverse(n[:])).String()), nil
 }
 
@@ -280,4 +279,40 @@ func IntToU256(i uint64) (ret U256Str) {
 	s := fmt.Sprint(i)
 	ret.UnmarshalText([]byte(s))
 	return
+}
+
+type ExtraData []byte
+
+func (e ExtraData) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(e).MarshalText()
+}
+
+func (e *ExtraData) UnmarshalJSON(input []byte) error {
+	var buf = make(hexutil.Bytes, 0)
+	buf.UnmarshalJSON(input)
+	if len(buf) > 32 {
+		return ErrLength
+	}
+	e.FromSlice(buf)
+	return nil
+}
+
+func (e *ExtraData) UnmarshalText(input []byte) error {
+	var buf hexutil.Bytes
+	buf.UnmarshalText(input)
+	if len(buf) > 32 {
+		return ErrLength
+	}
+	e.FromSlice(buf)
+	return nil
+}
+
+func (e ExtraData) String() string {
+	return hexutil.Bytes(e).String()
+}
+
+func (e *ExtraData) FromSlice(x []byte) {
+	tmp := make([]byte, len(x))
+	copy(tmp, x)
+	*e = tmp
 }

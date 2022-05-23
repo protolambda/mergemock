@@ -32,7 +32,6 @@ func TestJSONSerialization(t *testing.T) {
 
 func TestU256Str(t *testing.T) {
 	a := U256Str(common.HexToHash("0100000000000000000000000000000000000000000000000000000000000000"))
-	fmt.Println(a[:], "init")
 	require.Equal(t, "1", a.String())
 
 	b, err := json.Marshal(a)

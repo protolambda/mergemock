@@ -9,8 +9,14 @@ import (
 )
 
 // Generate SSZ encoding: make generate-ssz
+//
+// NOTE: due to the two pending TODOs, to generate the ssz it's necessary to 1)
+//       delete hexutil import in `builder_encodings.go` and 2) delete the
+//       `ExtraData` methods generated in `common_encodings.go` because these inhibit
+//       compilation.
+//
 // TODO: figure out why sszgen puts hexutil in code gen despite it not being used
-// TODO: figure out why sszgen has issue with type defs of byte slices (tracking: https://github.com/ferranbt/fastssz/issues/75)
+// TODO: figure out why sszgen doesn't handle import of []byte correctly and tries to create ssz methods for it
 
 // Eth1Data https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#eth1data
 type Eth1Data struct {
@@ -97,20 +103,20 @@ type SyncAggregate struct {
 
 // ExecutionPayloadHeader https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#executionpayloadheader
 type ExecutionPayloadHeader struct {
-	ParentHash       Hash          `json:"parent_hash" ssz-size:"32"`
-	FeeRecipient     Address       `json:"fee_recipient" ssz-size:"20"`
-	StateRoot        Root          `json:"state_root" ssz-size:"32"`
-	ReceiptsRoot     Root          `json:"receipts_root" ssz-size:"32"`
-	LogsBloom        Bloom         `json:"logs_bloom" ssz-size:"256"`
-	Random           Hash          `json:"prev_randao" ssz-size:"32"`
-	BlockNumber      uint64        `json:"block_number,string"`
-	GasLimit         uint64        `json:"gas_limit,string"`
-	GasUsed          uint64        `json:"gas_used,string"`
-	Timestamp        uint64        `json:"timestamp,string"`
-	ExtraData        hexutil.Bytes `json:"extra_data" ssz-max:"32"`
-	BaseFeePerGas    U256Str       `json:"base_fee_per_gas" ssz-size:"32"`
-	BlockHash        Hash          `json:"block_hash" ssz-size:"32"`
-	TransactionsRoot Root          `json:"transactions_root" ssz-size:"32"`
+	ParentHash       Hash      `json:"parent_hash" ssz-size:"32"`
+	FeeRecipient     Address   `json:"fee_recipient" ssz-size:"20"`
+	StateRoot        Root      `json:"state_root" ssz-size:"32"`
+	ReceiptsRoot     Root      `json:"receipts_root" ssz-size:"32"`
+	LogsBloom        Bloom     `json:"logs_bloom" ssz-size:"256"`
+	Random           Hash      `json:"prev_randao" ssz-size:"32"`
+	BlockNumber      uint64    `json:"block_number,string"`
+	GasLimit         uint64    `json:"gas_limit,string"`
+	GasUsed          uint64    `json:"gas_used,string"`
+	Timestamp        uint64    `json:"timestamp,string"`
+	ExtraData        ExtraData `json:"extra_data" ssz-max:"32"`
+	BaseFeePerGas    U256Str   `json:"base_fee_per_gas" ssz-size:"32"`
+	BlockHash        Hash      `json:"block_hash" ssz-size:"32"`
+	TransactionsRoot Root      `json:"transactions_root" ssz-size:"32"`
 }
 
 // ExecutionPayload https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#executionpayload
@@ -220,7 +226,7 @@ func PayloadToPayloadHeader(p *ExecutionPayloadV1) (*ExecutionPayloadHeader, err
 		GasLimit:         p.GasLimit,
 		GasUsed:          p.GasUsed,
 		Timestamp:        p.Timestamp,
-		ExtraData:        hexutil.Bytes(p.ExtraData),
+		ExtraData:        ExtraData(p.ExtraData),
 		BaseFeePerGas:    [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
 		BlockHash:        [32]byte(p.BlockHash),
 		TransactionsRoot: [32]byte(txroot),

@@ -152,6 +152,26 @@ func TestValidatorRegistration(t *testing.T) {
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Equal(t, errInvalidSignature.Error()+"\n", rr.Body.String())
+
+	// Old registration
+	msg := &types.RegisterValidatorRequestMessage{
+		FeeRecipient: types.Address{0x42},
+		GasLimit:     15_000_000,
+		Timestamp:    msg1.Timestamp,
+		Pubkey:       pubkey1,
+	}
+	root, err := types.ComputeSigningRoot(msg, types.DomainBuilder)
+	var sig types.Signature
+	sig.FromSlice(sk1.Sign(root[:]).Marshal())
+	require.NoError(t, err)
+	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", []types.SignedValidatorRegistration{
+		{
+			Message:   msg,
+			Signature: sig,
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.Equal(t, errInvalidTimestamp.Error()+"\n", rr.Body.String())
 }
 
 func TestGetHeader(t *testing.T) {

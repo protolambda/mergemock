@@ -30,6 +30,7 @@ var (
 	errInvalidHash      = errors.New("invalid hash")
 	errInvalidPubkey    = errors.New("invalid pubkey")
 	errInvalidSignature = errors.New("invalid signature")
+	errInvalidTimestamp = errors.New("invalid timestamp")
 
 	pathStatus            = "/eth/v1/builder/status"
 	pathRegisterValidator = "/eth/v1/builder/validators"
@@ -132,6 +133,7 @@ type RelayBackend struct {
 	sk     bls.SecretKey
 
 	genesisValidatorsRoot types.Root
+	registrations         map[types.PublicKey]*types.RegisterValidatorRequestMessage
 
 	latestPubkey types.PublicKey // cache for pubkey from latest getHeader call
 }
@@ -146,7 +148,17 @@ func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs, g
 	sk, _ := bls.RandKey()
 	var pk types.PublicKey
 	copy(pk[:], sk.PublicKey().Marshal())
-	return &RelayBackend{log, engine, pk, sk, types.Root(common.HexToHash(genesisValidatorsRoot)), types.PublicKey{}}, nil
+
+	registrations := make(map[types.PublicKey]*types.RegisterValidatorRequestMessage)
+
+	return &RelayBackend{
+		log:                   log,
+		engine:                engine,
+		pk:                    pk,
+		sk:                    sk,
+		genesisValidatorsRoot: types.Root(common.HexToHash(genesisValidatorsRoot)),
+		registrations:         registrations,
+	}, nil
 }
 
 func (r *RelayBackend) getRouter() http.Handler {
@@ -175,22 +187,30 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	for _, registration := range payload {
-		if len(registration.Message.Pubkey) != 48 {
+	for _, reg := range payload {
+		if len(reg.Message.Pubkey) != 48 {
 			http.Error(w, errInvalidPubkey.Error(), http.StatusBadRequest)
 			return
 		}
-		if len(registration.Signature) != 96 {
+		if len(reg.Signature) != 96 {
 			http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
 			return
 		}
-		ok, err := types.VerifySignature(registration.Message, types.DomainBuilder, registration.Message.Pubkey[:], registration.Signature[:])
+		ok, err := types.VerifySignature(reg.Message, types.DomainBuilder, reg.Message.Pubkey[:], reg.Signature[:])
 		if !ok || err != nil {
 			r.log.WithError(err).Error("error verifying signature")
 			http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
 			return
 		}
-		// TODO: update mapping?
+		if prefs, ok := r.registrations[reg.Message.Pubkey]; ok {
+			if prefs.Timestamp <= reg.Message.Timestamp {
+				http.Error(w, errInvalidTimestamp.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		// Note, successful registrations are not reverted if an error
+		// is encountered on a later validator.
+		r.registrations[reg.Message.Pubkey] = reg.Message
 	}
 	r.log.Info(fmt.Sprintf("registered %d validator(s) successfully\n", len(payload)))
 	w.Header().Set("Content-Type", "application/json")

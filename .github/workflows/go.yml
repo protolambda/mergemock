@@ -66,4 +66,4 @@ jobs:
       - name: Run consensus tests
         run: |
           ./mergemock relay &
-          ./mergemock consensus --slot-time=4s --builder=http://localhost:28545 --slot-bound 10
+          sleep 1 && ./mergemock consensus --slot-time=4s --builder=http://localhost:28545 --slot-bound 10

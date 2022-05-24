@@ -99,38 +99,56 @@ func TestStatusEndpoint(t *testing.T) {
 
 func TestValidatorRegistration(t *testing.T) {
 	relay := newTestRelay(t)
-	pk, sk := newKeypair(t)
+	pk1, sk1 := newKeypair(t)
+	pk2, sk2 := newKeypair(t)
 
-	var pubkey types.PublicKey
-	pubkey.FromSlice(pk)
-	require.Equal(t, pk[:], pubkey[:])
+	var pubkey1 types.PublicKey
+	var pubkey2 types.PublicKey
+	pubkey1.FromSlice(pk1)
+	pubkey2.FromSlice(pk2)
 
-	msg := &types.RegisterValidatorRequestMessage{
+	msg1 := &types.RegisterValidatorRequestMessage{
 		FeeRecipient: types.Address{0x42},
 		GasLimit:     15_000_000,
 		Timestamp:    uint64(time.Now().Unix()),
-		Pubkey:       pubkey,
+		Pubkey:       pubkey1,
 	}
-	root, err := types.ComputeSigningRoot(msg, types.DomainBuilder)
+	msg2 := &types.RegisterValidatorRequestMessage{
+		FeeRecipient: types.Address{0x42},
+		GasLimit:     15_000_000,
+		Timestamp:    uint64(time.Now().Unix()),
+		Pubkey:       pubkey2,
+	}
+	root1, err := types.ComputeSigningRoot(msg1, types.DomainBuilder)
+	require.NoError(t, err)
+	root2, err := types.ComputeSigningRoot(msg2, types.DomainBuilder)
 	require.NoError(t, err)
 
 	// Success
-	sig := sk.Sign(root[:]).Marshal()
-	var signature types.Signature
-	signature.FromSlice(sig)
-	require.Equal(t, sig[:], signature[:])
+	var sig1 types.Signature
+	sig1.FromSlice(sk1.Sign(root1[:]).Marshal())
+	var sig2 types.Signature
+	sig2.FromSlice(sk2.Sign(root2[:]).Marshal())
 
-	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.SignedValidatorRegistration{
-		Message:   msg,
-		Signature: signature,
+	rr := relay.testRequest(t, "POST", "/eth/v1/builder/validators", []types.SignedValidatorRegistration{
+		{
+			Message:   msg1,
+			Signature: sig1,
+		},
+		{
+			Message:   msg2,
+			Signature: sig2,
+		},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	// Invalid signature
-	signature[len(signature)-1] = 0x00
-	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", types.SignedValidatorRegistration{
-		Message:   msg,
-		Signature: signature,
+	sig1[len(sig1)-1] = 0x00
+	rr = relay.testRequest(t, "POST", "/eth/v1/builder/validators", []types.SignedValidatorRegistration{
+		{
+			Message:   msg1,
+			Signature: sig1,
+		},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Equal(t, errInvalidSignature.Error()+"\n", rr.Body.String())

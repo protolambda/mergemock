@@ -170,30 +170,29 @@ func (r *RelayBackend) handleStatus(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
-	payload := new(types.SignedValidatorRegistration)
+	payload := make([]types.SignedValidatorRegistration, 0)
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	if len(payload.Message.Pubkey) != 48 {
-		http.Error(w, errInvalidPubkey.Error(), http.StatusBadRequest)
-		return
+	for _, registration := range payload {
+		if len(registration.Message.Pubkey) != 48 {
+			http.Error(w, errInvalidPubkey.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(registration.Signature) != 96 {
+			http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
+			return
+		}
+		ok, err := types.VerifySignature(registration.Message, types.DomainBuilder, registration.Message.Pubkey[:], registration.Signature[:])
+		if !ok || err != nil {
+			r.log.WithError(err).Error("error verifying signature")
+			http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
+			return
+		}
+		// TODO: update mapping?
 	}
-
-	if len(payload.Signature) != 96 {
-		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
-		return
-	}
-
-	ok, err := types.VerifySignature(payload.Message, types.DomainBuilder, payload.Message.Pubkey[:], payload.Signature[:])
-	if !ok || err != nil {
-		r.log.WithError(err).Error("error verifying signature")
-		http.Error(w, errInvalidSignature.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// TODO: update mapping?
+	r.log.Info(fmt.Sprintf("registered %d validator(s) successfully\n", len(payload)))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{}`)

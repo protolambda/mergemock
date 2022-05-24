@@ -11,9 +11,29 @@ import (
 	"net/http"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/prysmaticlabs/prysm/crypto/bls"
 	"github.com/sirupsen/logrus"
 )
+
+func BuilderRegisterValidators(ctx context.Context, log *logrus.Logger, builderAddr string, msg []types.SignedValidatorRegistration) error {
+	path := "/eth/v1/builder/validators"
+	url := builderAddr + path
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	resp, err := http.Post(url, "json", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("builder REST API rejected validator registration with error: %d", body)
+	}
+	return nil
+}
 
 func BuilderGetHeader(ctx context.Context, log logrus.Ext1FieldLogger, builderAddr string, slot uint64, blockHash common.Hash, pubkey []byte) (*types.ExecutionPayloadHeader, error) {
 	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/0x%x", slot, blockHash.Hex(), pubkey)
@@ -48,7 +68,7 @@ func BuilderGetHeader(ctx context.Context, log logrus.Ext1FieldLogger, builderAd
 	return bid.Data.Message.Header, nil
 }
 
-func BuilderGetPayload(ctx context.Context, log logrus.Ext1FieldLogger, sk bls.SecretKey, builderAddr string, signedBlindedBeaconBlock *types.SignedBlindedBeaconBlock) (*types.ExecutionPayloadV1, error) {
+func BuilderGetPayload(ctx context.Context, log logrus.Ext1FieldLogger, builderAddr string, signedBlindedBeaconBlock *types.SignedBlindedBeaconBlock) (*types.ExecutionPayloadV1, error) {
 	payloadBytes, err := json.Marshal(signedBlindedBeaconBlock)
 	if err != nil {
 		return nil, err

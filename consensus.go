@@ -29,6 +29,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type validator struct {
+	pk types.PublicKey
+	sk bls.SecretKey
+}
+
 type ConsensusCmd struct {
 	BeaconGenesisTime uint64        `ask:"--beacon-genesis-time" help:"Beacon genesis time"`
 	SlotTime          time.Duration `ask:"--slot-time" help:"Time per slot"`
@@ -37,14 +42,15 @@ type ConsensusCmd struct {
 	// - % random gap slots (= missing beacon blocks)
 	// - % random finality
 
-	EngineAddr    string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
-	BuilderAddr   string `ask:"--builder" help:"Address of builder relay REST API endpoint to use"`
-	DataDir       string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
-	EthashDir     string `ask:"--ethashdir" help:"Directory to store ethash data"`
-	GenesisPath   string `ask:"--genesis" help:"Genesis execution-config file"`
-	JwtSecretPath string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
-	Enode         string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
-	SlotBound     uint64 `ask:"--slot-bound" help:"Terminate after the specified number of slots."`
+	EngineAddr     string `ask:"--engine" help:"Address of Engine JSON-RPC endpoint to use"`
+	BuilderAddr    string `ask:"--builder" help:"Address of builder relay REST API endpoint to use"`
+	DataDir        string `ask:"--datadir" help:"Directory to store execution chain data (empty for in-memory data)"`
+	EthashDir      string `ask:"--ethashdir" help:"Directory to store ethash data"`
+	GenesisPath    string `ask:"--genesis" help:"Genesis execution-config file"`
+	JwtSecretPath  string `ask:"--jwt-secret" help:"JWT secret key for authenticated communication"`
+	Enode          string `ask:"--node" help:"Enode of execution client, required to insert pre-merge blocks."`
+	SlotBound      uint64 `ask:"--slot-bound" help:"Terminate after the specified number of slots."`
+	ValidatorCount uint64 `ask:"--validators" help:"Number of validators to emulate."`
 
 	GenesisValidatorsRoot string `ask:"--genesis-validators-root" help:"Root of genesis validators"`
 
@@ -67,8 +73,8 @@ type ConsensusCmd struct {
 
 	ethashCfg ethash.Config
 
-	mockChain *MockChain
-	sk        bls.SecretKey
+	mockChain  *MockChain
+	validators []validator
 }
 
 func (c *ConsensusCmd) Default() {
@@ -77,7 +83,7 @@ func (c *ConsensusCmd) Default() {
 	c.GenesisPath = "genesis.json"
 	c.JwtSecretPath = "jwt.hex"
 	c.Enode = ""
-	c.SlotBound = 0
+	c.ValidatorCount = 1
 	c.SlotTime = time.Second * 12
 	c.SlotsPerEpoch = 32
 	c.LogLvl = "info"
@@ -112,10 +118,34 @@ func (c *ConsensusCmd) Run(ctx context.Context, args ...string) error {
 		return err
 	}
 
-	// Create a BLS key
-	c.sk, err = blst.RandKey()
-	if err != nil {
-		return errors.New("unable to generate bls key pair")
+	// Create a validator identities
+	if c.BuilderAddr != "" {
+		var registrations []types.SignedValidatorRegistration
+		for i := 0; i < int(c.ValidatorCount); i++ {
+			sk, err := blst.RandKey()
+			if err != nil {
+				return errors.New("unable to generate bls key pair")
+			}
+			var pk types.PublicKey
+			pk.FromSlice(sk.PublicKey().Marshal())
+			msg := &types.RegisterValidatorRequestMessage{
+				FeeRecipient: types.Address{0x42},
+				GasLimit:     30_000_000,
+				Timestamp:    uint64(time.Now().Unix()),
+				Pubkey:       pk,
+			}
+			root, err := types.ComputeSigningRoot(msg, types.DomainBuilder)
+			if err != nil {
+				return err
+			}
+			var sig types.Signature
+			sig.FromSlice(sk.Sign(root[:]).Marshal())
+			registrations = append(registrations, types.SignedValidatorRegistration{Message: msg, Signature: sig})
+			c.validators = append(c.validators, validator{pk, sk})
+		}
+		if err := api.BuilderRegisterValidators(ctx, log, c.BuilderAddr, registrations); err != nil {
+			return err
+		}
 	}
 
 	c.ethashCfg = ethash.Config{
@@ -403,7 +433,8 @@ func (c *ConsensusCmd) sendForkchoiceUpdated(latest, safe, final common.Hash, at
 func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1FieldLogger, payloadId types.PayloadID, slot uint64) (*types.ExecutionPayloadV1, error) {
 	// If the CL is connected to builder client, request the payload from there.
 	if c.BuilderAddr != "" {
-		header, err := api.BuilderGetHeader(c.ctx, log, c.BuilderAddr, slot, c.mockChain.CurrentHeader().Hash(), c.sk.PublicKey().Marshal())
+		idx := c.RNG.Int63n(int64(len(c.validators)))
+		header, err := api.BuilderGetHeader(c.ctx, log, c.BuilderAddr, slot, c.mockChain.CurrentHeader().Hash(), c.validators[idx].sk.PublicKey().Marshal())
 		if err != nil {
 			return nil, err
 		}
@@ -425,10 +456,10 @@ func (c *ConsensusCmd) getMockProposal(ctx context.Context, log logrus.Ext1Field
 		if err != nil {
 			return nil, err
 		}
-		sig := c.sk.Sign(root[:]).Marshal()
+		sig := c.validators[idx].sk.Sign(root[:]).Marshal()
 		signedBlindedBeaconBlock.Signature.FromSlice(sig)
 
-		payload, err := api.BuilderGetPayload(ctx, log, c.sk, c.BuilderAddr, signedBlindedBeaconBlock)
+		payload, err := api.BuilderGetPayload(ctx, log, c.BuilderAddr, signedBlindedBeaconBlock)
 		if err != nil {
 			return nil, err
 		}

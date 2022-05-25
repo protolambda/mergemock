@@ -50,10 +50,11 @@ func LoggingMiddleware(next http.Handler, log *logrus.Logger) http.Handler {
 						url = r.URL.EscapedPath()
 					}
 
-					log.Info(fmt.Sprintf("http request panic: %s %s", method, url),
-						"err", err,
-						"trace", string(debug.Stack()),
-					)
+					log.WithFields(logrus.Fields{
+						"err":    err,
+						"trace":  string(debug.Stack()),
+						"method": r.Method,
+					}).Error(fmt.Sprintf("http request panic: %s %s", method, url))
 				}
 			}()
 			start := time.Now()

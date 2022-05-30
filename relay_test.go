@@ -207,7 +207,8 @@ func TestGetHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, parentHash[:], bid.Data.Message.Header.ParentHash[:], "didn't build on expected parent")
-	ok, err := types.VerifySignature(bid.Data.Message, types.DomainBuilder, relay.pk[:], bid.Data.Signature[:])
+	domain := types.ComputeDomain(types.DomainTypeBeaconProposer, version.Bellatrix, &relay.genesisValidatorsRoot)
+	ok, err := types.VerifySignature(bid.Data.Message, domain, relay.pk[:], bid.Data.Signature[:])
 	require.NoError(t, err, "error verifying signature")
 	require.True(t, ok, "bid signature not valid")
 

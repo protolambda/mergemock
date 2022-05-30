@@ -266,7 +266,8 @@ func (r *RelayBackend) handleGetHeader(w http.ResponseWriter, req *http.Request)
 		Value:  [32]byte{0x1},
 		Pubkey: r.pk,
 	}
-	msg, err := types.ComputeSigningRoot(&bid, types.DomainBuilder)
+	domain := types.ComputeDomain(types.DomainTypeBeaconProposer, version.Bellatrix, &r.genesisValidatorsRoot)
+	msg, err := types.ComputeSigningRoot(&bid, domain)
 	if err != nil {
 		plog.Warn("cannot compute signing root")
 		http.Error(w, "cannot compute signing root", http.StatusBadRequest)

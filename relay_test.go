@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"mergemock/api"
@@ -30,7 +31,10 @@ type testRelayBackend struct {
 }
 
 func newTestRelay(t *testing.T) *testRelayBackend {
-	relay, err := NewRelayBackend(logrus.New(), "127.0.0.1:38551", "127.0.0.1:38552", "0x1234000000000000000000000000000000000000000000000000000000000000")
+	sk, err := bls.RandKey()
+	require.NoError(t, err)
+
+	relay, err := NewRelayBackend(logrus.New(), "127.0.0.1:38551", "127.0.0.1:38552", "0x1234000000000000000000000000000000000000000000000000000000000000", hex.EncodeToString(sk.Marshal()))
 	if err != nil {
 		t.Fatal("unable to create relay")
 	}

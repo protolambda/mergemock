@@ -4,3 +4,6 @@ data
 ethash
 jwt.hex
 /mergemock
+
+# IDEs
+.idea/

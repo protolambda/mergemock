@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,8 @@ type RelayCmd struct {
 
 	GenesisValidatorsRoot string `ask:"--genesis-validators-root" help:"Root of genesis validators"`
 
+	SecretKey string `ask:"--private-key" help:"The relay's secret key used to sign payloads"`
+
 	close chan struct{}
 	log   *logrus.Logger
 	ctx   context.Context
@@ -67,6 +70,9 @@ func (r *RelayCmd) Default() {
 	r.Timeout.ReadHeader = 10 * time.Second
 	r.Timeout.Write = 30 * time.Second
 	r.Timeout.Idle = 5 * time.Minute
+
+	sk, _ := bls.RandKey()
+	r.SecretKey = hex.EncodeToString(sk.Marshal())
 }
 
 func (r *RelayCmd) Help() string {
@@ -80,7 +86,7 @@ func (r *RelayCmd) Run(ctx context.Context, args ...string) error {
 		// Logger wasn't initialized so we can't log. Error out instead.
 		return err
 	}
-	backend, err := NewRelayBackend(r.log, r.EngineListenAddr, r.EngineListenAddrWs, r.GenesisValidatorsRoot)
+	backend, err := NewRelayBackend(r.log, r.EngineListenAddr, r.EngineListenAddrWs, r.GenesisValidatorsRoot, r.SecretKey)
 	if err != nil {
 		r.log.WithField("err", err).Fatal("Unable to initialize backend")
 	}
@@ -138,14 +144,21 @@ type RelayBackend struct {
 	latestPubkey types.PublicKey // cache for pubkey from latest getHeader call
 }
 
-func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs, genesisValidatorsRoot string) (*RelayBackend, error) {
+func NewRelayBackend(log *logrus.Logger, engineListenAddr, engineListenAddrWs, genesisValidatorsRoot, secretKey string) (*RelayBackend, error) {
 	engine := &EngineCmd{}
 	engine.Default()
 	engine.LogCmd.Default()
 	engine.ListenAddr = engineListenAddr
 	engine.WebsocketAddr = engineListenAddrWs
 
-	sk, _ := bls.RandKey()
+	skBytes, err := hex.DecodeString(secretKey)
+	if err != nil {
+		return nil, err
+	}
+	sk, err := bls.SecretKeyFromBytes(skBytes)
+	if err != nil {
+		return nil, err
+	}
 	var pk types.PublicKey
 	copy(pk[:], sk.PublicKey().Marshal())
 

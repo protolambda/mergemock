@@ -51,7 +51,7 @@ type RelayCmd struct {
 
 	GenesisValidatorsRoot string `ask:"--genesis-validators-root" help:"Root of genesis validators"`
 
-	SecretKey string `ask:"--private-key" help:"The relay's secret key used to sign payloads"`
+	SecretKey string `ask:"--secret-key" help:"The relay's secret key used to sign payloads"`
 
 	close chan struct{}
 	log   *logrus.Logger

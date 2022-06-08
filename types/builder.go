@@ -1,8 +1,6 @@
 package types
 
 import (
-	"math/big"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -251,7 +249,7 @@ func ELPayloadToRESTPayload(p *ExecutionPayloadV1) (*ExecutionPayloadREST, error
 		GasUsed:       p.GasUsed,
 		Timestamp:     p.Timestamp,
 		ExtraData:     hexutil.Bytes(p.ExtraData),
-		BaseFeePerGas: [32]byte(common.BytesToHash(p.BaseFeePerGas.Bytes())),
+		BaseFeePerGas: *new(U256Str).FromBig(p.BaseFeePerGas),
 		BlockHash:     [32]byte(p.BlockHash),
 		Transactions:  txs,
 	}, nil
@@ -262,9 +260,6 @@ func RESTPayloadToELPayload(p *ExecutionPayloadREST) (*ExecutionPayloadV1, error
 	for i, tx := range p.Transactions {
 		txs[i] = []byte(tx)
 	}
-
-	baseFeePerGas := new(big.Int)
-	baseFeePerGas.SetBytes(p.BaseFeePerGas[:])
 
 	return &ExecutionPayloadV1{
 		ParentHash:    common.Hash(p.ParentHash),
@@ -278,7 +273,7 @@ func RESTPayloadToELPayload(p *ExecutionPayloadREST) (*ExecutionPayloadV1, error
 		GasUsed:       p.GasUsed,
 		Timestamp:     p.Timestamp,
 		ExtraData:     hexutil.Bytes(p.ExtraData),
-		BaseFeePerGas: baseFeePerGas,
+		BaseFeePerGas: p.BaseFeePerGas.ToBig(),
 		BlockHash:     common.Hash(p.BlockHash),
 		Transactions:  txs,
 	}, nil

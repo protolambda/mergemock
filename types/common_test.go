@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -56,4 +57,6 @@ func TestU256Str(t *testing.T) {
 	// IntToU256
 	u := IntToU256(123)
 	require.Equal(t, "123", u.String())
+	require.Equal(t, IntToU256(123), *new(U256Str).FromBig(big.NewInt(123)))
+	require.Equal(t, big.NewInt(123).Uint64(), u.ToBig().Uint64())
 }

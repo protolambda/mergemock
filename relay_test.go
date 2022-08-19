@@ -161,7 +161,7 @@ func TestValidatorRegistration(t *testing.T) {
 	msg := &types.RegisterValidatorRequestMessage{
 		FeeRecipient: types.Address{0x42},
 		GasLimit:     15_000_000,
-		Timestamp:    msg1.Timestamp,
+		Timestamp:    msg1.Timestamp - 1,
 		Pubkey:       pubkey1,
 	}
 	root, err := types.ComputeSigningRoot(msg, types.DomainBuilder)

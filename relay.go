@@ -216,7 +216,7 @@ func (r *RelayBackend) handleRegisterValidator(w http.ResponseWriter, req *http.
 			return
 		}
 		if prefs, ok := r.registrations[reg.Message.Pubkey]; ok {
-			if prefs.Timestamp <= reg.Message.Timestamp {
+			if prefs.Timestamp > reg.Message.Timestamp {
 				http.Error(w, errInvalidTimestamp.Error(), http.StatusBadRequest)
 				return
 			}
